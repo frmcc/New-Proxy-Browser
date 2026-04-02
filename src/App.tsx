@@ -20,7 +20,7 @@ export default function App() {
   const [iframeSrc, setIframeSrc] = useState('');
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     let targetUrl = url.trim();
     if (!targetUrl) return;
@@ -36,11 +36,6 @@ export default function App() {
     if (!window.__uv$config) {
       alert('Ultraviolet is not initialized yet. Try refreshing.');
       return;
-    }
-
-    // Ensure service worker is active before navigating
-    if (navigator.serviceWorker?.controller == null) {
-      await navigator.serviceWorker?.ready;
     }
 
     const encoded = window.__uv$config.encodeUrl(targetUrl);
