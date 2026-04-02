@@ -18,8 +18,9 @@ async function startServer() {
   app.use('/uv-dist/', express.static(path.join(__dirname, 'node_modules/@titaniumnetwork-dev/ultraviolet/dist')));
 
   // Vite middleware for development
+  let vite: Awaited<ReturnType<typeof createViteServer>> | undefined;
   if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
+    vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });
@@ -36,6 +37,7 @@ async function startServer() {
 
   server.on('request', (req, res) => {
     if (bareServer.shouldRoute(req)) {
+      console.log('[bare]', req.method, req.url);
       bareServer.routeRequest(req, res);
     } else {
       app(req, res);
@@ -45,6 +47,8 @@ async function startServer() {
   server.on('upgrade', (req, socket, head) => {
     if (bareServer.shouldRoute(req)) {
       bareServer.routeUpgrade(req, socket, head);
+    } else if (vite?.httpServer) {
+      vite.httpServer.emit('upgrade', req, socket, head);
     }
   });
 

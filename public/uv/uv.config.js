@@ -10,9 +10,9 @@ self.__uv$config = {
     config: '/uv/uv.config.js',
     sw: '/uv-dist/uv.sw.js',
     construct: (uv, type) => {
-        const originalRewriteHtml = uv.rewriteHtml;
-        uv.rewriteHtml = function(html, options) {
-            let rewritten = originalRewriteHtml.call(this, html, options);
+        const originalRewrite = uv.html.rewrite.bind(uv.html);
+        uv.html.rewrite = function(html, options) {
+            let rewritten = originalRewrite(html, options);
             if (options && options.document) {
                 const injectHtml = `<style>
                     img, video, audio, picture, source, svg, canvas, object, embed, iframe[src*="youtube"], iframe[src*="vimeo"] {
