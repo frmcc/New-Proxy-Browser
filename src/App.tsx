@@ -103,7 +103,7 @@ export default function App() {
             src={iframeSrc}
             className="w-full h-full border-none"
             title="Focus Browser View"
-            sandbox="allow-same-origin allow-scripts allow-forms allow-modals allow-presentation"
+            sandbox="allow-same-origin allow-scripts allow-forms allow-modals allow-presentation allow-popups allow-popups-to-escape-sandbox"
           />
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-gray-500">
