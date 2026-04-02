@@ -4,6 +4,10 @@ importScripts(__uv$config.sw || '/uv-dist/uv.sw.js');
 
 const uv = new UVServiceWorker();
 
+// Activate immediately without waiting for old SW to release
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
+
 self.addEventListener('fetch', (event) => {
     event.respondWith(
         (async () => {

@@ -33,12 +33,13 @@ export default function App() {
       }
     }
 
-    if (window.__uv$config) {
-      const encoded = window.__uv$config.encodeUrl(targetUrl);
-      setIframeSrc(window.__uv$config.prefix + encoded);
-    } else {
-      alert('Ultraviolet is not initialized yet.');
+    if (!window.__uv$config) {
+      alert('Ultraviolet is not initialized yet. Try refreshing.');
+      return;
     }
+
+    const encoded = window.__uv$config.encodeUrl(targetUrl);
+    setIframeSrc(window.__uv$config.prefix + encoded);
   };
 
   const goBack = () => {
