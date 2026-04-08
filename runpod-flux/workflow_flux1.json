@@ -1,0 +1,126 @@
+{
+  "last_node_id": 11,
+  "last_link_id": 14,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "UNETLoader",
+      "pos": [50, 150],
+      "size": [315, 82],
+      "title": "FLUX.1 Model",
+      "outputs": [{ "name": "MODEL", "type": "MODEL", "links": [1] }],
+      "properties": { "Node name for S&R": "UNETLoader" },
+      "widgets_values": ["flux1-dev.safetensors", "fp8_e4m3fn"]
+    },
+    {
+      "id": 2,
+      "type": "DualCLIPLoader",
+      "pos": [50, 280],
+      "size": [315, 106],
+      "title": "Text Encoders",
+      "outputs": [{ "name": "CLIP", "type": "CLIP", "links": [2] }],
+      "properties": { "Node name for S&R": "DualCLIPLoader" },
+      "widgets_values": [
+        "t5xxl_fp8_e4m3fn.safetensors",
+        "clip_l.safetensors",
+        "flux"
+      ]
+    },
+    {
+      "id": 3,
+      "type": "VAELoader",
+      "pos": [50, 420],
+      "size": [315, 58],
+      "title": "VAE",
+      "outputs": [{ "name": "VAE", "type": "VAE", "links": [3] }],
+      "properties": { "Node name for S&R": "VAELoader" },
+      "widgets_values": ["ae.safetensors"]
+    },
+    {
+      "id": 4,
+      "type": "CLIPTextEncode",
+      "pos": [420, 150],
+      "size": [425, 180],
+      "title": "Positive Prompt",
+      "inputs": [{ "name": "clip", "type": "CLIP", "link": 2 }],
+      "outputs": [{ "name": "CONDITIONING", "type": "CONDITIONING", "links": [4] }],
+      "properties": { "Node name for S&R": "CLIPTextEncode" },
+      "widgets_values": ["a photo of a cat astronaut floating in space, cinematic lighting, highly detailed, 8k"]
+    },
+    {
+      "id": 5,
+      "type": "EmptyLatentImage",
+      "pos": [420, 370],
+      "size": [315, 106],
+      "title": "Image Size",
+      "outputs": [{ "name": "LATENT", "type": "LATENT", "links": [5] }],
+      "properties": { "Node name for S&R": "EmptyLatentImage" },
+      "widgets_values": [1024, 1024, 1]
+    },
+    {
+      "id": 6,
+      "type": "KSampler",
+      "pos": [800, 200],
+      "size": [315, 262],
+      "title": "Sampler",
+      "inputs": [
+        { "name": "model",       "type": "MODEL",       "link": 1 },
+        { "name": "positive",    "type": "CONDITIONING", "link": 4 },
+        { "name": "negative",    "type": "CONDITIONING", "link": 6 },
+        { "name": "latent_image","type": "LATENT",       "link": 5 }
+      ],
+      "outputs": [{ "name": "LATENT", "type": "LATENT", "links": [7] }],
+      "properties": { "Node name for S&R": "KSampler" },
+      "widgets_values": [42, "fixed", 20, 3.5, "euler", "simple", 1.0]
+    },
+    {
+      "id": 7,
+      "type": "CLIPTextEncode",
+      "pos": [420, 280],
+      "size": [315, 58],
+      "title": "Negative Prompt (leave empty for FLUX)",
+      "inputs": [{ "name": "clip", "type": "CLIP", "link": 2 }],
+      "outputs": [{ "name": "CONDITIONING", "type": "CONDITIONING", "links": [6] }],
+      "properties": { "Node name for S&R": "CLIPTextEncode" },
+      "widgets_values": [""]
+    },
+    {
+      "id": 8,
+      "type": "VAEDecode",
+      "pos": [1170, 200],
+      "size": [210, 46],
+      "title": "Decode",
+      "inputs": [
+        { "name": "samples", "type": "LATENT", "link": 7 },
+        { "name": "vae",     "type": "VAE",    "link": 3 }
+      ],
+      "outputs": [{ "name": "IMAGE", "type": "IMAGE", "links": [8] }],
+      "properties": { "Node name for S&R": "VAEDecode" }
+    },
+    {
+      "id": 9,
+      "type": "SaveImage",
+      "pos": [1170, 300],
+      "size": [210, 58],
+      "title": "Save Image",
+      "inputs": [{ "name": "images", "type": "IMAGE", "link": 8 }],
+      "properties": { "Node name for S&R": "SaveImage" },
+      "widgets_values": ["flux1_output"]
+    }
+  ],
+  "links": [
+    [1, 1, 0, 6, 0, "MODEL"],
+    [2, 2, 0, 4, 0, "CLIP"],
+    [2, 2, 0, 7, 0, "CLIP"],
+    [3, 3, 0, 8, 1, "VAE"],
+    [4, 4, 0, 6, 1, "CONDITIONING"],
+    [5, 5, 0, 6, 3, "LATENT"],
+    [6, 7, 0, 6, 2, "CONDITIONING"],
+    [7, 6, 0, 8, 0, "LATENT"],
+    [8, 8, 0, 9, 0, "IMAGE"]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": { "ds": { "scale": 0.8, "offset": [0, 0] } },
+  "version": 0.4
+}
