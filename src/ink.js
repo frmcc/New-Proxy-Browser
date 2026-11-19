@@ -1,5 +1,5 @@
-// Handwriting on the slides. The Apple Pencil always writes; fingers only
-// ever scroll and zoom. Strokes are smoothed with perfect-freehand (the
+// Handwriting on the slides. The Apple Pencil always writes; fingers scroll
+// and zoom unless "draw with a finger" is switched on. Strokes are smoothed with perfect-freehand (the
 // algorithm behind tldraw's and Excalidraw's pens): it evens out the jitter of
 // the raw input and varies the line width with pen pressure.
 
@@ -50,7 +50,7 @@ const REST_MS = 1200; // pause after the last stroke before handwriting is tidie
 // iPadOS hands the Pencil to web pages as a touch with touchType "stylus".
 // Cancelling that touch is what stops the page from scrolling under the pen,
 // so on iPad the stroke is read from the same touch events. Everywhere else
-// (desktop pens and the mouse) pointer events are used.
+// (desktop pens, the mouse, finger drawing) pointer events are used.
 const TOUCH_STYLUS = typeof Touch !== 'undefined' && 'touchType' in Touch.prototype;
 
 const round = (v) => Math.round(v * 100) / 100;
@@ -145,6 +145,7 @@ export class Ink {
     this._frame = 0;
     viewer.onPageShow = (p) => this._mount(p);
     viewer.onPageHide = (p) => this._unmount(p);
+    viewer.onPinch = () => this._cancel();
     this._bind();
   }
 
@@ -265,12 +266,15 @@ export class Ink {
     return [round((x - r.left) * k), round((y - r.top) * k)];
   }
 
-  _begin(p, id, x, y, pressure, erase) {
+  _begin(p, id, x, y, pressure, erase, finger = false) {
     const pt = this._toUnits(p, x, y);
     clearTimeout(this._restTimer);
-    this.viewer.penDown();
+    // Only the pen switches on palm rejection; a drawing finger must still
+    // give way to a second finger that starts a pinch.
+    if (finger) this.viewer.fingerInk = true;
+    else this.viewer.penDown();
     if (erase) {
-      this.active = { id, p, erase: true, last: pt, before: this.pages.get(p.num) ?? [] };
+      this.active = { id, p, finger, erase: true, last: pt, before: this.pages.get(p.num) ?? [] };
       this._eraseAlong(pt, pt);
       return;
     }
@@ -279,7 +283,7 @@ export class Ink {
     const el = document.createElementNS(SVG_NS, 'path');
     el.setAttribute('fill', color);
     this._layer(p, stroke.tool).append(el);
-    this.active = { id, p, stroke, el };
+    this.active = { id, p, finger, stroke, el };
     this._paint();
   }
 
@@ -312,7 +316,7 @@ export class Ink {
     const a = this.active;
     if (!a) return;
     this.active = null;
-    this.viewer.penUp();
+    this._release(a);
     const n = a.p.num;
     if (a.erase) {
       const after = this.pages.get(n) ?? [];
@@ -333,14 +337,19 @@ export class Ink {
     }
   }
 
-  // Drop the stroke in progress.
+  _release(a) {
+    if (a.finger) this.viewer.fingerInk = false;
+    else this.viewer.penUp();
+  }
+
+  // Drop the stroke in progress, e.g. when a second finger starts a pinch.
   _cancel() {
     const a = this.active;
     if (!a) return;
     if (a.erase) return this._end();
     a.el.remove();
     this.active = null;
-    this.viewer.penUp();
+    this._release(a);
   }
 
   _eraseAlong(from, to) {
@@ -360,11 +369,16 @@ export class Ink {
 
     const pointerDraws = (e) => {
       if (e.pointerType === 'pen') return !TOUCH_STYLUS;
-      return e.pointerType === 'mouse' && e.button === 0; // never a finger
+      if (e.pointerType === 'mouse') return e.button === 0;
+      // A finger draws only when that is switched on, and not while the pen
+      // is being used: then it is the hand holding the pen.
+      return e.pointerType === 'touch' && e.isPrimary && this.viewer.fingerDraw && !this.viewer.penRecent();
     };
 
     s.addEventListener('pointerdown', (e) => {
-      if (this.active || !pointerDraws(e) || e.target.closest('.tab')) return;
+      if (!pointerDraws(e) || e.target.closest('.tab')) return;
+      if (this.active?.finger && e.pointerType !== 'touch') this._cancel(); // the pen takes over from a resting hand
+      if (this.active) return;
       const p = this.viewer.pageUnder(e.clientX, e.clientY);
       if (!p) return;
       e.preventDefault();
@@ -374,8 +388,8 @@ export class Ink {
       const pen = e.pointerType === 'pen';
       // Styluses with an eraser end report it as button 5.
       const erase = this.tool === 'eraser' || (pen && (e.button === 5 || (e.buttons & 32) !== 0));
-      this._begin(p, `p${e.pointerId}`, e.clientX, e.clientY, pen ? e.pressure : 0, erase);
-      this.active.mouse = !pen;
+      this._begin(p, `p${e.pointerId}`, e.clientX, e.clientY, pen ? e.pressure : 0, erase, e.pointerType === 'touch');
+      this.active.mouse = e.pointerType === 'mouse';
     });
 
     s.addEventListener('pointermove', (e) => {
@@ -403,6 +417,7 @@ export class Ink {
         if (e.target.closest('.tab')) return; // let the Pencil tap a ribbon
         for (const t of stylus(e)) {
           if (e.cancelable) e.preventDefault(); // the Pencil writes; it never scrolls
+          if (this.active?.finger) this._cancel(); // the pen takes over from a resting hand
           if (this.active) continue;
           const p = this.viewer.pageUnder(t.clientX, t.clientY);
           if (p) this._begin(p, `t${t.identifier}`, t.clientX, t.clientY, t.force, this.tool === 'eraser');

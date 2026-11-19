@@ -15,6 +15,7 @@ const MIN_ZOOM = 1;
 const MAX_ZOOM = 4;
 const PORTRAIT_MAX_WIDTH = 920;
 const PEN_GRACE = 600; // ms after a stroke during which touches still count as the writing hand
+const PEN_SESSION = 5000; // ms after a stroke during which a finger may not draw
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -44,8 +45,12 @@ export class Viewer {
     // Hooks for the ink layer.
     this.onPageShow = () => {};
     this.onPageHide = () => {};
-    this.inkActive = false; // a stroke is being drawn right now
+    this.onPinch = () => {};
+    this.inkActive = false; // the pen (or mouse) is drawing right now
+    this.fingerDraw = false; // "draw with a finger" is switched on
+    this.fingerInk = false; // a finger is drawing right now
     this._penUntil = 0; // the pen counts as "in use" until this time
+    this._penLast = -Infinity; // when the pen last touched or lifted
     this._fingers = new Set(); // ids of the finger touches that are down
     this._palms = new Set(); // touches of the writing hand: ignored until they lift
     this._lockTimer = 0;
@@ -201,6 +206,12 @@ export class Viewer {
     return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom ? p : null;
   }
 
+  // Optional: one finger draws, two fingers move and zoom.
+  setFingerDraw(on) {
+    this.fingerDraw = on;
+    this.scroller.classList.toggle('finger-draw', on);
+  }
+
   // ---- pen and palm ----
   // Fingers move the slides and the pen writes. The hand holding the pen also
   // rests on the glass, so while the pen is in use everything else that
@@ -209,6 +220,7 @@ export class Viewer {
 
   penDown() {
     this.inkActive = true;
+    this._penLast = performance.now();
     for (const id of this._fingers) this._palms.add(id); // already resting: the writing hand
     this._dropGestures();
     this._syncLock();
@@ -217,17 +229,24 @@ export class Viewer {
   penUp() {
     this.inkActive = false;
     // The hand hops along between strokes; keep ignoring it for a moment.
-    this._penUntil = performance.now() + PEN_GRACE;
+    this._penLast = performance.now();
+    this._penUntil = this._penLast + PEN_GRACE;
     this._syncLock();
   }
 
-  _penBusy() {
+  // Someone writing with the pen is not also drawing with a finger: with
+  // "draw with a finger" on, the hand must not leave marks between strokes.
+  penRecent() {
+    return this.inkActive || performance.now() - this._penLast < PEN_SESSION;
+  }
+
+  penBusy() {
     return this.inkActive || performance.now() < this._penUntil;
   }
 
   _syncLock() {
     clearTimeout(this._lockTimer);
-    const busy = this._penBusy();
+    const busy = this.penBusy();
     // Pinning matters only where a touch can scroll.
     this.scroller.classList.toggle('writing', (busy || this._palms.size > 0) && navigator.maxTouchPoints > 0);
     if (busy && !this.inkActive)
@@ -464,7 +483,7 @@ export class Viewer {
       'touchstart',
       (e) => {
         prune(e);
-        const writing = this._penBusy();
+        const writing = this.penBusy();
         let palm = false;
         for (const t of e.changedTouches) {
           if (!isFinger(t)) continue;
@@ -483,10 +502,11 @@ export class Viewer {
         const f = fingers(e);
         if (f.length === 2 && e.touches.length === 2) {
           e.preventDefault();
+          if (this.fingerInk) this.onPinch(); // the first finger was not drawing after all
           const [x, y] = middle(f);
           pinch = { distance: distance(f), x, y, zoom: this.zoom, anchor: null, live: false };
           tap = null;
-        } else if (f.length === 1 && e.touches.length === 1 && !e.target.closest('.tab')) {
+        } else if (f.length === 1 && e.touches.length === 1 && !this.fingerDraw && !e.target.closest('.tab')) {
           tap = { x: f[0].clientX, y: f[0].clientY, t: e.timeStamp };
         }
       },
@@ -528,7 +548,7 @@ export class Viewer {
         if (this._palms.delete(t.identifier)) palmLifted = true;
       }
       prune(e);
-      if (palmLifted || this._palms.size || this._penBusy()) {
+      if (palmLifted || this._palms.size || this.penBusy()) {
         this._dropGestures();
         return this._syncLock();
       }

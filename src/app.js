@@ -41,7 +41,7 @@ const ink = new Ink(viewer, {
     if (state.doc) store.putInk(state.doc.id, page, strokes);
   },
 });
-setupTools(ink);
+setupTools(ink, viewer);
 setupTidy(ink, viewer, { toast });
 
 // ---- rendering ----
