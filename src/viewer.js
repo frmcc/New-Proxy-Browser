@@ -217,6 +217,7 @@ export class Viewer {
     const s = this.scroller;
     const spare = s.clientHeight - p.el.offsetHeight;
     s.scrollTo({ top: p.el.offsetTop - Math.max(spare / 2, 12), behavior });
+    if (behavior !== 'smooth') this._updateCurrent(); // a jump is the new place at once
   }
 
   // ---- layout ----
@@ -246,6 +247,7 @@ export class Viewer {
     s.scrollTop = p.el.offsetTop + this._fy * p.el.offsetHeight - s.clientHeight / 2;
     s.scrollLeft = p.el.offsetLeft + this._fx * p.el.offsetWidth - s.clientWidth / 2;
     this._renderNear();
+    this._updateCurrent();
   }
 
   _queueRelayout() {

@@ -37,6 +37,25 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a6 6 0 00-3.7 10.7c.7.6 1.2 1.4 1.2 2.3h5c0-.9.5-1.7 1.2-2.3A6 6 0 0012 3z"/><path d="M9.8 18.6h4.4M10.8 21h2.4"/></svg>
       </button>
 
+      <section id="quiz-card" aria-label="Quiz question" hidden>
+        <header id="quiz-grip">
+          <span class="grip-dots" aria-hidden="true"></span>
+          <span id="quiz-step"></span>
+          <button id="quiz-fold" class="icon-btn" aria-label="Fold the question away">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+        </header>
+        <div class="quiz-body">
+          <p id="quiz-question"></p>
+          <div id="quiz-pad" class="pad"><span class="pad-hint">Write your answer here</span></div>
+          <p id="quiz-feedback" role="status"></p>
+          <div class="quiz-actions">
+            <button id="quiz-clear" class="text-btn">Clear</button>
+            <button id="quiz-reveal" class="text-btn" hidden>Show the answer</button>
+          </div>
+        </div>
+      </section>
+
       <div id="tools" role="toolbar" aria-label="Drawing tools">
         <button data-tool="pen" aria-label="Pen">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l1.2-4.6L16.6 4a2 2 0 012.8 0l.6.6a2 2 0 010 2.8L8.6 18.8z"/><path d="M14.5 6.1l3.4 3.4"/></svg>
@@ -98,15 +117,11 @@
       <div id="pane-body" class="note"></div>
 
       <section id="quiz" aria-label="Quiz for this slide" hidden>
-        <p id="quiz-step"></p>
-        <p id="quiz-question"></p>
-        <div id="quiz-pad" class="pad"><span class="pad-hint">Write your answer here</span></div>
-        <p id="quiz-feedback" role="status"></p>
+        <p id="quiz-status"></p>
+        <p id="quiz-note"></p>
         <div class="quiz-actions">
           <button id="quiz-start" class="btn primary" hidden>Quiz me on this slide</button>
           <button id="quiz-again" class="text-btn" hidden>Do the quiz again</button>
-          <button id="quiz-clear" class="text-btn" hidden>Clear</button>
-          <button id="quiz-reveal" class="text-btn" hidden>Show the answer</button>
         </div>
       </section>
     </aside>

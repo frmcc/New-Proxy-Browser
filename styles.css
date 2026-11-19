@@ -217,6 +217,7 @@ body {
   padding: 14px;
   outline: none;
   overscroll-behavior: contain;
+  overflow-anchor: none; /* the viewer keeps its own place when sizes change */
   touch-action: pan-x pan-y;
   -webkit-overflow-scrolling: touch;
   -webkit-user-select: none;
@@ -685,9 +686,11 @@ body {
 
 /* ---- the quiz ---- */
 
+/* In the pane: only the state of the quiz. The question itself floats over
+   the slides, where the hand writes. */
 #quiz {
   flex: none;
-  padding: 14px 24px 12px;
+  padding: 12px 24px 10px;
   border-top: 1px solid var(--rule);
 }
 
@@ -695,20 +698,109 @@ body {
   margin: 0;
 }
 
+#quiz-status,
 #quiz-step {
   color: var(--graphite);
   font-size: 13.5px;
   font-weight: 600;
 }
 
-#quiz[data-mode="done"] #quiz-step,
-#quiz.passed #quiz-step {
+#quiz[data-mode="done"] #quiz-status,
+#quiz-card.passed #quiz-step {
   color: var(--done);
 }
 
+#quiz-note {
+  margin-top: 2px !important;
+  color: var(--graphite);
+  font: 15.5px/1.4 var(--read);
+}
+
+#quiz-note:empty {
+  display: none;
+}
+
+.quiz-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+}
+
+.quiz-actions .text-btn {
+  padding: 8px 0 4px;
+}
+
+.quiz-actions .btn {
+  margin-top: 10px;
+}
+
+/* The question card. It sits low over the slides by default and can be
+   dragged by its top edge to wherever writing is most comfortable. */
+#quiz-card {
+  position: absolute;
+  z-index: 3;
+  bottom: 96px;
+  width: min(480px, calc(100% - 16px));
+  padding: 0 18px 10px;
+  border-radius: 18px;
+  background: var(--paper);
+  box-shadow: 0 0 0 1px var(--rule), 0 3px 6px rgba(15, 20, 35, 0.16), 0 18px 40px -12px rgba(15, 20, 35, 0.55);
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+#quiz-grip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  margin: 0 -10px 0 0;
+  cursor: grab;
+  touch-action: none;
+}
+
+#quiz-card.dragging #quiz-grip {
+  cursor: grabbing;
+}
+
+.grip-dots {
+  flex: none;
+  width: 14px;
+  height: 18px;
+  background: radial-gradient(circle, var(--graphite) 1.5px, transparent 1.9px) 0 0 / 7px 6px;
+  opacity: 0.55;
+}
+
+#quiz-step {
+  flex: 1;
+}
+
+#quiz-fold svg {
+  transition: transform 0.15s;
+}
+
+#quiz-card.folded {
+  width: auto;
+  padding-bottom: 0;
+}
+
+#quiz-card.folded .quiz-body {
+  display: none;
+}
+
+#quiz-card.folded #quiz-fold svg {
+  transform: rotate(180deg);
+}
+
+#quiz-card p {
+  margin: 0;
+}
+
 #quiz-question {
-  margin-top: 4px !important;
-  font-size: 16px;
+  font-size: 16.5px;
   font-weight: 600;
   line-height: 1.35;
 }
@@ -720,36 +812,14 @@ body {
   font: 15.5px/1.4 var(--read);
 }
 
-#quiz[data-mode="done"] #quiz-feedback,
-#quiz[data-mode="pending"] #quiz-feedback,
-#quiz[data-mode="offer"] #quiz-feedback {
-  min-height: 0;
-  margin-top: 2px !important;
-}
-
-#quiz.failed #quiz-feedback {
+#quiz-card.failed #quiz-feedback {
   color: var(--problem);
-}
-
-.quiz-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 14px;
-}
-
-.quiz-actions .text-btn {
-  padding: 8px 0 4px;
-}
-
-.quiz-actions .btn {
-  margin-top: 10px;
 }
 
 /* The box to write in: an index card with one ruled line. */
 .pad {
   position: relative;
-  height: 128px;
+  height: 136px;
   margin-top: 10px;
   border: 1.5px solid var(--rule);
   border-radius: 12px;
@@ -757,9 +827,6 @@ body {
   color: var(--pen);
   cursor: crosshair;
   touch-action: none;
-  -webkit-user-select: none;
-  user-select: none;
-  -webkit-touch-callout: none;
   transition: border-color 0.2s, opacity 0.2s;
 }
 
@@ -787,17 +854,12 @@ body {
   display: none;
 }
 
-#quiz.checking .pad {
+#quiz-card.checking .pad {
   opacity: 0.55;
 }
 
-#quiz.passed .pad {
+#quiz-card.passed .pad {
   border-color: var(--done);
-}
-
-#quiz:not([data-mode="card"]) .pad,
-#quiz:not([data-mode="card"]) #quiz-question {
-  display: none;
 }
 
 /* Upright screens: the note sits under the slide instead of beside it. */

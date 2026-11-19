@@ -64,14 +64,17 @@ if (typeof document !== 'undefined') {
   );
 
   const lifted = (e) => {
+    let palm = false;
     for (const t of e.changedTouches) {
       fingers.delete(t.identifier);
-      palms.delete(t.identifier);
+      if (palms.delete(t.identifier)) palm = true;
     }
+    // The hand lifting off must not press the button it was resting on.
+    if (palm && e.cancelable) e.preventDefault();
     prune(e);
     sync();
   };
-  document.addEventListener('touchend', lifted, { capture: true });
+  document.addEventListener('touchend', lifted, { capture: true, passive: false });
   document.addEventListener('touchcancel', lifted, { capture: true });
 }
 

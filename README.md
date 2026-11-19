@@ -36,9 +36,12 @@ Google's Gemini API.
 
 ## The quiz
 
-Under each explanation sits a quiz card: one question about the slide and a
-box to write the answer in by hand. How many questions a slide gets (none to
-four) depends on how much on it is worth knowing.
+With each explanation comes a quiz card: one question about the slide and a
+box to write the answer in by hand. The card floats over the slides, low and
+centred where the hand writes comfortably. Drag it by its top edge to put it
+somewhere else (the place is remembered), or fold it away with the arrow to
+see the whole slide. How many questions a slide gets (none to four) depends on
+how much on it is worth knowing.
 
 About two seconds after you stop writing, Gemini reads the answer and checks
 it. A correct answer brings the next card; a wrong one gets a hint, and what

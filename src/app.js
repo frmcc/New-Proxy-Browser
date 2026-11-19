@@ -40,10 +40,11 @@ const viewer = new Viewer($('viewer'), {
     rememberPage();
   },
   onMarkerTap(n) {
+    // Jump first, so that when the pane opens and the slides are laid out
+    // again, this is the slide that is kept in place.
+    if (n !== state.page) viewer.goTo(n, 'auto');
     state.paneOpen = true;
     render();
-    // The pane takes space from the slides; move once that has settled.
-    if (n !== state.page) requestAnimationFrame(() => viewer.goTo(n));
   },
 });
 
@@ -69,7 +70,10 @@ function render() {
 function renderPane() {
   const open = state.paneOpen && app.dataset.view === 'reader' && state.doc;
   pane.hidden = !open;
-  if (!open) return;
+  if (!open) {
+    quizCard.hidden = true; // the quiz goes away with the explanation
+    return;
+  }
 
   const page = state.page;
   const job = state.jobs.get(page);
@@ -200,7 +204,8 @@ async function deleteNote(page) {
 
 // ---- quiz ----
 
-const quizEl = $('quiz');
+const quizEl = $('quiz'); // foot of the pane
+const quizCard = $('quiz-card'); // floats over the slides
 const cards = new Map(); // "page:index" -> what has happened on that card so far
 let shownCard = null; // the card whose handwriting the pad is showing
 
@@ -233,6 +238,8 @@ const pad = new Pad($('quiz-pad'), {
   onRest: () => checkAnswer(),
 });
 
+// The quiz shows in two places: its state at the foot of the pane, and the
+// question being answered as a card floating over the slides.
 function renderQuiz() {
   const page = state.page;
   const note = state.notes.get(page);
@@ -243,47 +250,120 @@ function renderQuiz() {
     else if (!Array.isArray(note.quiz)) mode = 'offer';
     else mode = isDone(note) ? 'done' : 'card';
   }
-  quizEl.hidden = !mode;
-  if (mode !== 'card') shownCard = null;
-  if (!mode) return;
+  const total = note?.quiz?.length ?? 0;
 
-  const card = mode === 'card' ? cardFor(page, note.solved ?? 0) : null;
-  const total = note.quiz?.length ?? 0;
-  quizEl.dataset.mode = mode;
-  quizEl.classList.toggle('checking', Boolean(card?.checking));
-  quizEl.classList.toggle('passed', Boolean(card?.passed));
-  quizEl.classList.toggle('failed', Boolean(card?.failed));
+  quizEl.hidden = !mode || mode === 'card';
+  quizEl.dataset.mode = mode ?? '';
   $('quiz-start').hidden = mode !== 'offer';
   $('quiz-again').hidden = !(mode === 'done' && total);
-  $('quiz-clear').hidden = !card || card.passed;
-  $('quiz-reveal').hidden = !card || card.passed || card.revealed || !card.tries;
+  $('quiz-status').textContent =
+    mode === 'pending'
+      ? 'Preparing the quiz'
+      : mode === 'offer'
+        ? 'No quiz for this slide yet'
+        : mode === 'done'
+          ? total
+            ? 'Slide understood'
+            : 'Nothing to quiz here'
+          : '';
+  $('quiz-note').textContent =
+    mode !== 'done'
+      ? ''
+      : !total
+        ? 'This slide has nothing that needs testing.'
+        : total === 1
+          ? 'You answered the question correctly.'
+          : `You answered all ${total} questions correctly.`;
 
-  let step = '';
-  let feedback = '';
-  if (mode === 'pending') step = 'Preparing the quiz';
-  else if (mode === 'offer') step = 'No quiz for this slide yet';
-  else if (mode === 'done') {
-    step = total ? 'Slide understood' : 'Nothing to quiz here';
-    feedback = !total
-      ? 'This slide has nothing that needs testing.'
-      : total === 1
-        ? 'You answered the question correctly.'
-        : `You answered all ${total} questions correctly.`;
-  } else {
-    const index = note.solved ?? 0;
-    step = card.passed ? 'Correct' : card.checking ? 'Checking your answer' : `Question ${index + 1} of ${total}`;
-    $('quiz-question').textContent = note.quiz[index].q;
-    feedback = [card.feedback, card.revealed && !card.passed ? `Answer: ${note.quiz[index].a}` : '']
-      .filter(Boolean)
-      .join(' ');
-    if (shownCard !== card) {
-      pad.load(card.strokes);
-      shownCard = card;
-    }
+  quizCard.hidden = mode !== 'card';
+  if (mode !== 'card') return;
+  const index = note.solved ?? 0;
+  const card = cardFor(page, index);
+  quizCard.classList.toggle('checking', card.checking);
+  quizCard.classList.toggle('passed', card.passed);
+  quizCard.classList.toggle('failed', card.failed);
+  $('quiz-clear').hidden = card.passed;
+  $('quiz-reveal').hidden = card.passed || card.revealed || !card.tries;
+  $('quiz-step').textContent = card.passed
+    ? 'Correct'
+    : card.checking
+      ? 'Checking your answer'
+      : `Question ${index + 1} of ${total}`;
+  $('quiz-question').textContent = note.quiz[index].q;
+  $('quiz-feedback').textContent = [card.feedback, card.revealed && !card.passed ? `Answer: ${note.quiz[index].a}` : '']
+    .filter(Boolean)
+    .join(' ');
+  if (shownCard !== card) {
+    pad.load(card.strokes);
+    shownCard = card;
   }
-  $('quiz-step').textContent = step;
-  $('quiz-feedback').textContent = feedback;
+  placeCard();
 }
+
+// ---- where the question card floats ----
+
+const POSITION_KEY = 'pdf-tut.quiz-card';
+let cardSpot = null; // { x: centre as a share of the width, y: top as a share of the height }, once dragged
+try {
+  cardSpot = JSON.parse(localStorage.getItem(POSITION_KEY));
+} catch {}
+if (localStorage.getItem(`${POSITION_KEY}.folded`) === '1') quizCard.classList.add('folded');
+
+function placeCard() {
+  if (quizCard.hidden) return;
+  const stage = $('stage');
+  const maxLeft = Math.max(8, stage.clientWidth - quizCard.offsetWidth - 8);
+  if (!cardSpot) {
+    // Not moved yet: low and centred, just above the drawing tools.
+    quizCard.style.top = '';
+    quizCard.style.left = `${Math.max(8, (stage.clientWidth - quizCard.offsetWidth) / 2)}px`;
+    return;
+  }
+  const maxTop = Math.max(8, stage.clientHeight - quizCard.offsetHeight - 8);
+  quizCard.style.bottom = 'auto';
+  quizCard.style.left = `${Math.min(maxLeft, Math.max(8, cardSpot.x * stage.clientWidth - quizCard.offsetWidth / 2))}px`;
+  quizCard.style.top = `${Math.min(maxTop, Math.max(8, cardSpot.y * stage.clientHeight))}px`;
+}
+
+new ResizeObserver(placeCard).observe($('stage'));
+
+{
+  const grip = $('quiz-grip');
+  let drag = null;
+  grip.addEventListener('pointerdown', (e) => {
+    if (drag || e.target.closest('button')) return;
+    e.preventDefault();
+    grip.setPointerCapture(e.pointerId);
+    const box = quizCard.getBoundingClientRect();
+    drag = { id: e.pointerId, dx: e.clientX - box.left, dy: e.clientY - box.top };
+    quizCard.classList.add('dragging');
+  });
+  grip.addEventListener('pointermove', (e) => {
+    if (drag?.id !== e.pointerId) return;
+    const stage = $('stage');
+    const area = stage.getBoundingClientRect();
+    cardSpot = {
+      x: (e.clientX - drag.dx - area.left + quizCard.offsetWidth / 2) / stage.clientWidth,
+      y: (e.clientY - drag.dy - area.top) / stage.clientHeight,
+    };
+    placeCard();
+  });
+  const drop = (e) => {
+    if (drag?.id !== e.pointerId) return;
+    drag = null;
+    quizCard.classList.remove('dragging');
+    if (cardSpot) localStorage.setItem(POSITION_KEY, JSON.stringify(cardSpot));
+  };
+  grip.addEventListener('pointerup', drop);
+  grip.addEventListener('pointercancel', drop);
+}
+
+$('quiz-fold').addEventListener('click', () => {
+  const folded = quizCard.classList.toggle('folded');
+  $('quiz-fold').setAttribute('aria-label', folded ? 'Show the question' : 'Fold the question away');
+  localStorage.setItem(`${POSITION_KEY}.folded`, folded ? '1' : '0');
+  placeCard();
+});
 
 // Starts writing a quiz. Resolves with the questions, or null if that failed.
 function prepareQuiz(page, settings, parts) {
@@ -333,6 +413,7 @@ async function checkAnswer() {
   const note = state.notes.get(page);
   const card = openCard();
   if (!card || card.checking || card.passed || pad.empty) return;
+  if (quizCard.hidden || quizCard.classList.contains('folded')) return; // nothing to read while it is put away
   const settings = store.settings();
   if (!settings.apiKey) return openSettings('Add your Gemini API key to have answers checked.');
 
