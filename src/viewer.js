@@ -10,9 +10,11 @@ const CDN = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjs.version}/`;
 pdfjs.GlobalWorkerOptions.workerSrc = `${VENDOR}pdf.worker.min.mjs`;
 
 const MAX_PIXELS = 12_000_000; // per canvas; iPad Safari refuses much more
+const OFFSCREEN_PIXELS = 5_500_000; // pages waiting just outside the view get less
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 4;
 const PORTRAIT_MAX_WIDTH = 920;
+const PEN_GRACE = 600; // ms after a stroke during which touches still count as the writing hand
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -42,9 +44,11 @@ export class Viewer {
     // Hooks for the ink layer.
     this.onPageShow = () => {};
     this.onPageHide = () => {};
-    this.onPinch = () => {};
     this.inkActive = false; // a stroke is being drawn right now
-    this.fingerDraw = false; // one finger draws instead of scrolling
+    this._penUntil = 0; // the pen counts as "in use" until this time
+    this._fingers = new Set(); // ids of the finger touches that are down
+    this._palms = new Set(); // touches of the writing hand: ignored until they lift
+    this._lockTimer = 0;
     this.doc = null;
     this.pages = [];
     this.near = new Set();
@@ -116,6 +120,9 @@ export class Viewer {
     }
     this.pages = [];
     this.near.clear();
+    this._fingers.clear();
+    this._palms.clear();
+    this._syncLock();
     this.scroller.replaceChildren();
     const task = this._task;
     this.doc = null;
@@ -194,9 +201,37 @@ export class Viewer {
     return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom ? p : null;
   }
 
-  setFingerDraw(on) {
-    this.fingerDraw = on;
-    this.scroller.classList.toggle('finger-draw', on);
+  // ---- pen and palm ----
+  // Fingers move the slides and the pen writes. The hand holding the pen also
+  // rests on the glass, so while the pen is in use everything else that
+  // touches the screen is treated as that hand: it cannot scroll, zoom or tap,
+  // and stays ignored until it lifts. The view is pinned for that time.
+
+  penDown() {
+    this.inkActive = true;
+    for (const id of this._fingers) this._palms.add(id); // already resting: the writing hand
+    this._dropGestures();
+    this._syncLock();
+  }
+
+  penUp() {
+    this.inkActive = false;
+    // The hand hops along between strokes; keep ignoring it for a moment.
+    this._penUntil = performance.now() + PEN_GRACE;
+    this._syncLock();
+  }
+
+  _penBusy() {
+    return this.inkActive || performance.now() < this._penUntil;
+  }
+
+  _syncLock() {
+    clearTimeout(this._lockTimer);
+    const busy = this._penBusy();
+    // Pinning matters only where a touch can scroll.
+    this.scroller.classList.toggle('writing', (busy || this._palms.size > 0) && navigator.maxTouchPoints > 0);
+    if (busy && !this.inkActive)
+      this._lockTimer = setTimeout(() => this._syncLock(), this._penUntil - performance.now() + 20);
   }
 
   setMarked(n, marked) {
@@ -277,6 +312,11 @@ export class Viewer {
   }
 
   _onScroll() {
+    if (this.zoom > 1.01) {
+      // Zoomed in: once scrolling settles, sharpen whatever came into view.
+      clearTimeout(this._settleTimer);
+      this._settleTimer = setTimeout(() => this._renderNear(), 160);
+    }
     if (this._scrollQueued) return;
     this._scrollQueued = true;
     requestAnimationFrame(() => {
@@ -339,9 +379,14 @@ export class Viewer {
     const cssW = p.el.clientWidth;
     if (!cssW) return;
     const dpr = Math.min(window.devicePixelRatio || 1, 3);
-    const target = Math.min(Math.round(cssW * dpr), Math.floor(Math.sqrt(MAX_PIXELS * p.aspect)));
+    // Full sharpness only for what is on screen: zoomed in, a page is large,
+    // and three of them at full size would exhaust the iPad's canvas memory.
+    const view = this.scroller.getBoundingClientRect();
+    const box = p.el.getBoundingClientRect();
+    const budget = box.bottom > view.top && box.top < view.bottom ? MAX_PIXELS : OFFSCREEN_PIXELS;
+    const target = Math.min(Math.round(cssW * dpr), Math.floor(Math.sqrt(budget * p.aspect)));
     // Keep a canvas that is already sharp enough and not wastefully large.
-    if (p.renderedW && target <= p.renderedW * 1.05 && target >= p.renderedW * 0.5) return;
+    if (p.renderedW && target <= p.renderedW * 1.05 && target >= p.renderedW * 0.75) return;
     if (p.pendingW === target) return;
 
     const gen = ++p.gen;
@@ -396,28 +441,52 @@ export class Viewer {
     const distance = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
     const middle = (t) => [(t[0].clientX + t[1].clientX) / 2, (t[0].clientY + t[1].clientY) / 2];
 
-    // An Apple Pencil shows up among the touches too; it belongs to the ink
-    // layer, so only fingers count here.
-    const fingers = (e) => [...e.touches].filter((t) => t.touchType !== 'stylus');
+    // The Apple Pencil shows up among the touches too, and so does the hand
+    // that holds it. Only free fingers may move the slides.
+    const isFinger = (t) => t.touchType !== 'stylus';
+    const fingers = (e) => [...e.touches].filter((t) => isFinger(t) && !this._palms.has(t.identifier));
+
+    // Forget touches that are gone, in case an end event never arrived.
+    const prune = (e) => {
+      const down = new Set([...e.touches].map((t) => t.identifier));
+      for (const set of [this._fingers, this._palms]) for (const id of set) if (!down.has(id)) set.delete(id);
+    };
 
     let pinch = null;
     let tap = null; // candidate for a double tap
     let lastTap = null;
+    this._dropGestures = () => {
+      if (pinch?.live) this._renderNear();
+      pinch = tap = lastTap = null;
+    };
 
     s.addEventListener(
       'touchstart',
       (e) => {
-        if (!this.pages.length) return;
+        prune(e);
+        const writing = this._penBusy();
+        let palm = false;
+        for (const t of e.changedTouches) {
+          if (!isFinger(t)) continue;
+          this._fingers.add(t.identifier);
+          if (writing) {
+            // It landed while the pen is in use: the writing hand.
+            this._palms.add(t.identifier);
+            palm = true;
+          }
+        }
+        if (palm) {
+          if (e.cancelable) e.preventDefault();
+          return this._syncLock();
+        }
+        if (!this.pages.length || this._palms.size) return;
         const f = fingers(e);
         if (f.length === 2 && e.touches.length === 2) {
           e.preventDefault();
-          this.onPinch();
           const [x, y] = middle(f);
-          pinch = { distance: distance(f), zoom: this.zoom, anchor: this._capture(x, y) };
+          pinch = { distance: distance(f), x, y, zoom: this.zoom, anchor: null, live: false };
           tap = null;
-        } else if (this.inkActive) {
-          e.preventDefault(); // a resting hand must not scroll the page mid-stroke
-        } else if (f.length === 1 && e.touches.length === 1 && !this.fingerDraw && !e.target.closest('.tab')) {
+        } else if (f.length === 1 && e.touches.length === 1 && !e.target.closest('.tab')) {
           tap = { x: f[0].clientX, y: f[0].clientY, t: e.timeStamp };
         }
       },
@@ -427,13 +496,24 @@ export class Viewer {
     s.addEventListener(
       'touchmove',
       (e) => {
+        if (this._palms.size || this.inkActive) {
+          // The writing hand shifts as it writes; that must not move anything.
+          if (e.cancelable) e.preventDefault();
+          return;
+        }
         const f = fingers(e);
         if (pinch && f.length === 2) {
           e.preventDefault();
           const [x, y] = middle(f);
-          this._zoomTo((pinch.zoom * distance(f)) / pinch.distance, x, y, pinch.anchor);
-        } else if (this.inkActive) {
-          if (e.cancelable) e.preventDefault();
+          const d = distance(f);
+          if (!pinch.live) {
+            // Two touches that barely move are not a pinch yet.
+            if (Math.abs(d - pinch.distance) < 8 && Math.hypot(x - pinch.x, y - pinch.y) < 8) return;
+            pinch.live = true;
+            pinch.distance = d;
+            pinch.anchor = this._capture(x, y);
+          }
+          this._zoomTo((pinch.zoom * d) / pinch.distance, x, y, pinch.anchor);
         } else if (tap) {
           if (!f[0] || Math.hypot(f[0].clientX - tap.x, f[0].clientY - tap.y) > 10) tap = null;
         }
@@ -442,11 +522,24 @@ export class Viewer {
     );
 
     const end = (e) => {
+      let palmLifted = false;
+      for (const t of e.changedTouches) {
+        this._fingers.delete(t.identifier);
+        if (this._palms.delete(t.identifier)) palmLifted = true;
+      }
+      prune(e);
+      if (palmLifted || this._palms.size || this._penBusy()) {
+        this._dropGestures();
+        return this._syncLock();
+      }
       const f = fingers(e);
       if (pinch && f.length < 2) {
+        const moved = pinch.live;
         pinch = null;
-        this._renderNear();
-        this._updateCurrent();
+        if (moved) {
+          this._renderNear();
+          this._updateCurrent();
+        }
         return;
       }
       if (!tap || f.length || e.timeStamp - tap.t > 300) return (tap = null);
@@ -462,9 +555,14 @@ export class Viewer {
       tap = null;
     };
     s.addEventListener('touchend', end, { passive: false });
-    s.addEventListener('touchcancel', () => {
-      pinch = tap = null;
-      this._renderNear();
+    s.addEventListener('touchcancel', (e) => {
+      for (const t of e.changedTouches) {
+        this._fingers.delete(t.identifier);
+        this._palms.delete(t.identifier);
+      }
+      prune(e);
+      this._dropGestures();
+      this._syncLock();
     });
 
     // Trackpad pinch and ctrl + wheel on a desktop browser.

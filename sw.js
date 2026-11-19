@@ -2,7 +2,7 @@
 // update is picked up on the next launch; the cache answers when the
 // connection is missing or slow.
 
-const CACHE = 'pdf-tut-v3';
+const CACHE = 'pdf-tut-v4';
 const SHELL = [
   './',
   'index.html',

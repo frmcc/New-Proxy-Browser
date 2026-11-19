@@ -34,11 +34,12 @@ Google's Gemini API.
 
 ## Writing on slides
 
-The Apple Pencil always writes; fingers always scroll and zoom, so there is no
-mode to switch. The toolbar at the bottom picks pen, highlighter or eraser,
-the colour and the width, and has undo and redo. The hand button lets a finger
-(or a mouse) draw as well; two fingers then move and zoom. The arrow at the end
-folds the toolbar away.
+The Apple Pencil always writes and fingers only ever scroll and zoom, so there
+is no mode to switch. While you write, the hand resting on the screen is
+ignored: it cannot scroll, zoom or tap, and the view stays pinned until that
+hand lifts. The toolbar at the bottom picks pen, highlighter or eraser, the
+colour and the width, and has undo and redo. The arrow at the end folds the
+toolbar away. On a computer the mouse draws.
 
 Strokes are smoothed with [perfect-freehand](https://github.com/steveruizok/perfect-freehand):
 it evens out the jitter of the raw pen input and varies the line width with

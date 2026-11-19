@@ -222,9 +222,10 @@ body {
   -webkit-touch-callout: none;
 }
 
-/* "Draw with a finger" on: one finger writes, two fingers move and zoom. */
-#viewer.finger-draw {
-  touch-action: none;
+/* While the pen is in use the view is pinned, so the hand resting on the
+   glass cannot scroll it. */
+#viewer.writing {
+  overflow: hidden;
 }
 
 .page {
@@ -399,8 +400,7 @@ body {
 }
 
 #tools [data-tool][aria-pressed="true"],
-#tools #tidy[aria-pressed="true"],
-#tools #finger[aria-pressed="true"] {
+#tools #tidy[aria-pressed="true"] {
   background: var(--ink);
   color: var(--paper);
 }
