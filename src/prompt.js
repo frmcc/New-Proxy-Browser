@@ -17,9 +17,6 @@ One or two sentences on how this builds on earlier slides or what it sets up nex
 ### Remember
 The one to three facts or ideas most worth memorising for an exam.
 
-### Check yourself
-Two short questions that test real understanding, each followed by its answer in italics.
-
 Rules:
 - Start directly with the first heading. No greeting, no closing remark.
 - Be dense and concrete. Aim for 150 to 250 words; go longer only when the slide is packed.
@@ -53,7 +50,7 @@ function deckContext(texts, page) {
   return chosen.map((s) => `[Slide ${s.n}]\n${s.text}`).join('\n\n');
 }
 
-export function buildParts({ name, page, numPages, pageText, deckTexts, image }) {
+export function buildParts({ name, page, numPages, pageText, deckTexts, image, task = 'Write the study note' }) {
   const parts = [];
   const context = deckContext(deckTexts, page);
   if (context) {
@@ -66,7 +63,7 @@ export function buildParts({ name, page, numPages, pageText, deckTexts, image })
     ? `Text extracted from it:\n"""\n${pageText.slice(0, 4_000)}\n"""`
     : 'No text could be extracted from it, so read it from the image.';
   parts.push({
-    text: `The image shows slide ${page} of ${numPages}, the one the student is looking at now. ${extracted}\n\nWrite the study note for slide ${page}.`,
+    text: `The image shows slide ${page} of ${numPages}, the one the student is looking at now. ${extracted}\n\n${task} for slide ${page}.`,
   });
   return parts;
 }

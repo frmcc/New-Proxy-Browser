@@ -62,9 +62,6 @@ export const putFile = (id, buffer) =>
 export const notesFor = (docId) =>
   run('notes', 'readonly', (tx, set) => set(tx.objectStore('notes').index('byDoc').getAll(docId)));
 
-export const countNotes = (docId) =>
-  run('notes', 'readonly', (tx, set) => set(tx.objectStore('notes').index('byDoc').count(docId)));
-
 export const putNote = (note) =>
   run('notes', 'readwrite', (tx) => tx.objectStore('notes').put(note));
 
@@ -96,7 +93,13 @@ export const deleteDoc = (id) =>
     }
   });
 
-const DEFAULTS = { apiKey: '', model: 'gemini-flash-latest', fast: true, prompt: null };
+const DEFAULTS = {
+  apiKey: '',
+  model: 'gemini-flash-latest',
+  gradeModel: 'gemini-flash-lite-latest', // reads and checks quiz answers
+  fast: true,
+  prompt: null,
+};
 
 export function settings() {
   let saved = {};
@@ -107,11 +110,17 @@ export function settings() {
   return { ...s, prompt: s.prompt || DEFAULT_PROMPT };
 }
 
-export function saveSettings({ apiKey, model, fast, prompt }) {
+export function saveSettings({ apiKey, model, gradeModel, fast, prompt }) {
   const custom = prompt.trim() && prompt.trim() !== DEFAULT_PROMPT.trim() ? prompt : null;
   localStorage.setItem(
     SETTINGS_KEY,
-    JSON.stringify({ apiKey: apiKey.trim(), model: model.trim() || DEFAULTS.model, fast, prompt: custom }),
+    JSON.stringify({
+      apiKey: apiKey.trim(),
+      model: model.trim() || DEFAULTS.model,
+      gradeModel: gradeModel.trim() || DEFAULTS.gradeModel,
+      fast,
+      prompt: custom,
+    }),
   );
 }
 

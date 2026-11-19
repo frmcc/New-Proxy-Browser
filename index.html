@@ -73,7 +73,7 @@
     <section id="library">
       <div class="library-inner">
         <h2><span>Lectures</span></h2>
-        <p class="lede">Open a lecture PDF and tap the yellow button on any slide. The explanation appears next to the slide and stays with it. Write on the slides with Apple Pencil.</p>
+        <p class="lede">Open a lecture PDF and tap the yellow button on any slide. The explanation appears next to the slide with a short quiz you answer by hand. Write on the slides with Apple Pencil.</p>
         <button id="pick" class="btn primary">Open a PDF</button>
         <ul id="recent"></ul>
       </div>
@@ -82,6 +82,8 @@
     <aside id="pane" hidden aria-label="Note for this slide">
       <header>
         <h2 id="pane-title">Slide 1</h2>
+        <span id="pane-done" class="done-mark" role="img" aria-label="Quiz answered" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M7.5 12.5l3 3 6-6.5"/></svg></span>
+        <span class="spacer"></span>
         <button id="note-stop" class="text-btn" hidden>Stop</button>
         <button id="note-redo" class="icon-btn" aria-label="Write this note again" hidden>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12a7 7 0 11-2.3-5.2M19 4v4h-4"/></svg>
@@ -94,6 +96,19 @@
         </button>
       </header>
       <div id="pane-body" class="note"></div>
+
+      <section id="quiz" aria-label="Quiz for this slide" hidden>
+        <p id="quiz-step"></p>
+        <p id="quiz-question"></p>
+        <div id="quiz-pad" class="pad"><span class="pad-hint">Write your answer here</span></div>
+        <p id="quiz-feedback" role="status"></p>
+        <div class="quiz-actions">
+          <button id="quiz-start" class="btn primary" hidden>Quiz me on this slide</button>
+          <button id="quiz-again" class="text-btn" hidden>Do the quiz again</button>
+          <button id="quiz-clear" class="text-btn" hidden>Clear</button>
+          <button id="quiz-reveal" class="text-btn" hidden>Show the answer</button>
+        </div>
+      </section>
     </aside>
   </div>
 
@@ -110,6 +125,10 @@
       <input id="s-model" list="s-models" autocomplete="off" autocapitalize="off" spellcheck="false">
       <datalist id="s-models"></datalist>
       <p class="hint" id="s-model-hint">gemini-flash-latest always points at Google's newest Flash model.</p>
+
+      <label for="s-grade">Model for checking quiz answers</label>
+      <input id="s-grade" list="s-models" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <p class="hint">A small, fast model is enough to read and check an answer. If it is not available, the model above is used.</p>
 
       <label class="check"><input id="s-fast" type="checkbox"> <span>Fastest answers<small>Skips the model's thinking step, so the note starts sooner.</small></span></label>
 

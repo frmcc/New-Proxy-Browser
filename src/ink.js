@@ -4,6 +4,7 @@
 // the raw input and varies the line width with pen pressure.
 
 import { getStroke } from '../vendor/perfect-freehand.mjs';
+import { palm } from './palm.js';
 
 export const UNITS = 1000; // every page is 1000 units wide, whatever its size on screen
 
@@ -272,7 +273,7 @@ export class Ink {
     // Only the pen switches on palm rejection; a drawing finger must still
     // give way to a second finger that starts a pinch.
     if (finger) this.viewer.fingerInk = true;
-    else this.viewer.penDown();
+    else palm.penDown();
     if (erase) {
       this.active = { id, p, finger, erase: true, last: pt, before: this.pages.get(p.num) ?? [] };
       this._eraseAlong(pt, pt);
@@ -339,7 +340,7 @@ export class Ink {
 
   _release(a) {
     if (a.finger) this.viewer.fingerInk = false;
-    else this.viewer.penUp();
+    else palm.penUp();
   }
 
   // Drop the stroke in progress, e.g. when a second finger starts a pinch.
@@ -372,7 +373,7 @@ export class Ink {
       if (e.pointerType === 'mouse') return e.button === 0;
       // A finger draws only when that is switched on, and not while the pen
       // is being used: then it is the hand holding the pen.
-      return e.pointerType === 'touch' && e.isPrimary && this.viewer.fingerDraw && !this.viewer.penRecent();
+      return e.pointerType === 'touch' && e.isPrimary && this.viewer.fingerDraw && !palm.recent();
     };
 
     s.addEventListener('pointerdown', (e) => {

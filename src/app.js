@@ -6,6 +6,8 @@ import { DEFAULT_PROMPT, buildParts } from './prompt.js';
 import { Ink } from './ink.js';
 import { setupTools } from './tools.js';
 import { setupTidy } from './tidy.js';
+import { Pad } from './pad.js';
+import { makeQuiz, gradeAnswer } from './quiz.js';
 
 const $ = (id) => document.getElementById(id);
 const app = $('app');
@@ -18,8 +20,17 @@ const state = {
   page: 1,
   notes: new Map(), // page -> saved note
   jobs: new Map(), // page -> { text, ctrl, error } while a note is being written
+  quizJobs: new Set(), // "docId:page" while a quiz is being prepared
   paneOpen: false,
 };
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// A note carries its quiz: note.quiz is a list of { q, a }, note.solved counts
+// the questions answered correctly so far. The slide is done when all are.
+const isDone = (note) => Array.isArray(note?.quiz) && (note.solved ?? 0) >= note.quiz.length;
+const markOf = (note) => (note ? (isDone(note) ? 'done' : 'note') : false);
+const quizKey = (page) => `${state.doc?.id}:${page}`;
 
 const viewer = new Viewer($('viewer'), {
   onPageChange(n) {
@@ -65,6 +76,7 @@ function renderPane() {
   const note = state.notes.get(page);
   const writing = job && !job.error;
   $('pane-title').textContent = `Slide ${page}`;
+  $('pane-done').hidden = writing || !isDone(note);
   $('note-stop').hidden = !writing;
   $('note-redo').hidden = writing || !note;
   $('note-delete').hidden = writing || !note;
@@ -83,6 +95,7 @@ function renderPane() {
     paneBody.innerHTML =
       '<p class="quiet">No note for this slide yet.</p><button class="btn primary" data-act="explain">Explain this slide</button>';
   }
+  renderQuiz();
 }
 
 let paneFrame = 0;
@@ -123,31 +136,37 @@ async function writeNote(page) {
   const settings = store.settings();
   const job = { text: '', ctrl: new AbortController(), error: null };
   state.jobs.set(page, job);
+  forgetCards(page);
   render();
 
   const live = () => state.doc?.id === doc.id && state.jobs.get(page) === job;
   const save = async () => {
-    if (!job.text.trim()) return;
+    if (!job.text.trim()) return null;
     const note = { docId: doc.id, page, text: job.text.trim(), model: settings.model, updatedAt: Date.now() };
     await store.putNote(note);
     if (state.doc?.id === doc.id) {
       state.notes.set(page, note);
-      viewer.setMarked(page, true);
+      viewer.setMarked(page, markOf(note));
     }
+    return note;
   };
 
+  let note = null;
+  let quiz = null;
   try {
     const [image, pageText, deckTexts] = await Promise.all([
       viewer.snapshot(page),
       viewer.pageText(page),
       viewer.deckTexts(400),
     ]);
-    const parts = buildParts({ name: doc.name, page, numPages: doc.numPages, pageText, deckTexts, image });
+    const material = { name: doc.name, page, numPages: doc.numPages, pageText, deckTexts, image };
+    // The quiz is written alongside the explanation, from the same material.
+    quiz = prepareQuiz(page, settings, buildParts({ ...material, task: 'Write the quiz' }));
     const stream = streamGenerate({
       apiKey: settings.apiKey,
       model: settings.model,
       system: settings.prompt,
-      parts,
+      parts: buildParts(material),
       fast: settings.fast,
       signal: job.ctrl.signal,
     });
@@ -155,11 +174,11 @@ async function writeNote(page) {
       job.text += chunk;
       if (live() && state.page === page) renderPaneSoon();
     }
-    await save();
+    note = await save();
     if (live()) state.jobs.delete(page);
   } catch (e) {
     if (e.name === 'AbortError') {
-      await save(); // keep what was written before Stop
+      note = await save(); // keep what was written before Stop
       if (live()) state.jobs.delete(page);
     } else {
       console.error(e);
@@ -167,14 +186,208 @@ async function writeNote(page) {
     }
   }
   if (state.doc?.id === doc.id) render();
+  if (quiz) await attachQuiz(doc, page, note, quiz);
 }
 
 async function deleteNote(page) {
   if (!state.doc) return;
   await store.deleteNote(state.doc.id, page);
   state.notes.delete(page);
+  forgetCards(page);
   viewer.setMarked(page, false);
   render();
+}
+
+// ---- quiz ----
+
+const quizEl = $('quiz');
+const cards = new Map(); // "page:index" -> what has happened on that card so far
+let shownCard = null; // the card whose handwriting the pad is showing
+
+function cardFor(page, index) {
+  const key = `${page}:${index}`;
+  if (!cards.has(key)) {
+    cards.set(key, { key, strokes: [], version: 0, tries: 0, feedback: '', revealed: false, checking: false, passed: false, failed: false });
+  }
+  return cards.get(key);
+}
+
+function forgetCards(page) {
+  for (const key of [...cards.keys()]) if (page === undefined || key.startsWith(`${page}:`)) cards.delete(key);
+  shownCard = null;
+}
+
+// The card that is waiting for an answer on the current slide, if any.
+function openCard() {
+  const note = state.notes.get(state.page);
+  if (!state.doc || !Array.isArray(note?.quiz) || isDone(note)) return null;
+  return cardFor(state.page, note.solved ?? 0);
+}
+
+const pad = new Pad($('quiz-pad'), {
+  allowFinger: () => viewer.fingerDraw,
+  onChange() {
+    const card = openCard();
+    if (card) card.version++;
+  },
+  onRest: () => checkAnswer(),
+});
+
+function renderQuiz() {
+  const page = state.page;
+  const note = state.notes.get(page);
+  const job = state.jobs.get(page);
+  let mode = null;
+  if (note && !(job && !job.error)) {
+    if (state.quizJobs.has(quizKey(page))) mode = 'pending';
+    else if (!Array.isArray(note.quiz)) mode = 'offer';
+    else mode = isDone(note) ? 'done' : 'card';
+  }
+  quizEl.hidden = !mode;
+  if (mode !== 'card') shownCard = null;
+  if (!mode) return;
+
+  const card = mode === 'card' ? cardFor(page, note.solved ?? 0) : null;
+  const total = note.quiz?.length ?? 0;
+  quizEl.dataset.mode = mode;
+  quizEl.classList.toggle('checking', Boolean(card?.checking));
+  quizEl.classList.toggle('passed', Boolean(card?.passed));
+  quizEl.classList.toggle('failed', Boolean(card?.failed));
+  $('quiz-start').hidden = mode !== 'offer';
+  $('quiz-again').hidden = !(mode === 'done' && total);
+  $('quiz-clear').hidden = !card || card.passed;
+  $('quiz-reveal').hidden = !card || card.passed || card.revealed || !card.tries;
+
+  let step = '';
+  let feedback = '';
+  if (mode === 'pending') step = 'Preparing the quiz';
+  else if (mode === 'offer') step = 'No quiz for this slide yet';
+  else if (mode === 'done') {
+    step = total ? 'Slide understood' : 'Nothing to quiz here';
+    feedback = !total
+      ? 'This slide has nothing that needs testing.'
+      : total === 1
+        ? 'You answered the question correctly.'
+        : `You answered all ${total} questions correctly.`;
+  } else {
+    const index = note.solved ?? 0;
+    step = card.passed ? 'Correct' : card.checking ? 'Checking your answer' : `Question ${index + 1} of ${total}`;
+    $('quiz-question').textContent = note.quiz[index].q;
+    feedback = [card.feedback, card.revealed && !card.passed ? `Answer: ${note.quiz[index].a}` : '']
+      .filter(Boolean)
+      .join(' ');
+    if (shownCard !== card) {
+      pad.load(card.strokes);
+      shownCard = card;
+    }
+  }
+  $('quiz-step').textContent = step;
+  $('quiz-feedback').textContent = feedback;
+}
+
+// Starts writing a quiz. Resolves with the questions, or null if that failed.
+function prepareQuiz(page, settings, parts) {
+  state.quizJobs.add(quizKey(page));
+  return makeQuiz(settings, parts).catch((e) => {
+    console.error(e);
+    toast(e.name === 'GeminiError' ? `No quiz for slide ${page}. ${e.message}` : `The quiz for slide ${page} could not be prepared.`);
+    return null;
+  });
+}
+
+async function attachQuiz(doc, page, note, run) {
+  const quiz = await run;
+  state.quizJobs.delete(`${doc.id}:${page}`);
+  // Only if the note is still the one this quiz was written for.
+  if (quiz && note && state.doc?.id === doc.id && state.notes.get(page) === note) {
+    note.quiz = quiz;
+    note.solved = 0;
+    await store.putNote(note);
+    viewer.setMarked(page, markOf(note));
+  }
+  if (state.doc?.id === doc.id) render();
+}
+
+// For notes that have no quiz yet (written before quizzes, or it failed).
+async function startQuiz(page) {
+  const doc = state.doc;
+  const note = state.notes.get(page);
+  if (!doc || !note || state.quizJobs.has(quizKey(page))) return;
+  const settings = store.settings();
+  if (!settings.apiKey) return openSettings('Add your Gemini API key to get a quiz.');
+  state.quizJobs.add(quizKey(page));
+  renderQuiz();
+  const [image, pageText, deckTexts] = await Promise.all([
+    viewer.snapshot(page),
+    viewer.pageText(page),
+    viewer.deckTexts(400),
+  ]);
+  const material = { name: doc.name, page, numPages: doc.numPages, pageText, deckTexts, image, task: 'Write the quiz' };
+  await attachQuiz(doc, page, note, prepareQuiz(page, settings, buildParts(material)));
+}
+
+// Runs when the pen has rested on an answer: read it, check it, move on.
+async function checkAnswer() {
+  const doc = state.doc;
+  const page = state.page;
+  const note = state.notes.get(page);
+  const card = openCard();
+  if (!card || card.checking || card.passed || pad.empty) return;
+  const settings = store.settings();
+  if (!settings.apiKey) return openSettings('Add your Gemini API key to have answers checked.');
+
+  const index = note.solved ?? 0;
+  const version = card.version;
+  card.checking = true;
+  card.failed = false;
+  renderQuiz();
+  let result = null;
+  try {
+    result = await gradeAnswer(settings, {
+      question: note.quiz[index].q,
+      answer: note.quiz[index].a,
+      image: pad.image(),
+      slideText: await viewer.pageText(page).catch(() => ''),
+    });
+  } catch (e) {
+    console.error(e);
+    card.failed = true;
+    card.feedback = e.name === 'GeminiError' ? e.message : 'The answer could not be checked. Try again.';
+  }
+  card.checking = false;
+  const current = () => state.doc?.id === doc.id && state.notes.get(page) === note && (note.solved ?? 0) === index;
+  if (!current() || !result) return renderQuiz();
+  if (card.version !== version) {
+    // More was written while the answer was being checked: check that instead.
+    renderQuiz();
+    if (shownCard === card) pad.nudge();
+    return;
+  }
+  if (!result.correct) {
+    card.tries++;
+    card.feedback = result.feedback || 'Not quite yet. Try again.';
+    return renderQuiz();
+  }
+  card.passed = true;
+  card.feedback = result.feedback;
+  renderQuiz();
+  await sleep(1300); // let the tick register before the next card comes
+  if (!current()) return;
+  note.solved = index + 1;
+  await store.putNote(note);
+  cards.delete(card.key);
+  viewer.setMarked(page, markOf(note));
+  render();
+}
+
+async function restartQuiz(page) {
+  const note = state.notes.get(page);
+  if (!note) return;
+  note.solved = 0;
+  forgetCards(page);
+  viewer.setMarked(page, markOf(note));
+  render();
+  await store.putNote(note);
 }
 
 // ---- documents ----
@@ -198,6 +411,8 @@ function rememberPage() {
 function stopJobs() {
   for (const job of state.jobs.values()) job.ctrl.abort();
   state.jobs.clear();
+  state.quizJobs.clear();
+  forgetCards();
 }
 
 // A document is recognised by its exact bytes, so a re-download of the same
@@ -240,7 +455,7 @@ async function openBytes(buffer, name) {
   state.page = 1;
   for (const note of await store.notesFor(doc.id)) {
     state.notes.set(note.page, note);
-    viewer.setMarked(note.page, true);
+    viewer.setMarked(note.page, markOf(note));
   }
   ink.load(await store.inkFor(doc.id));
   if (doc.lastPage > 1) viewer.goTo(doc.lastPage, 'auto');
@@ -270,7 +485,7 @@ async function showLibrary() {
   setView('library');
 
   const docs = await store.listDocs();
-  const counts = await Promise.all(docs.map((d) => store.countNotes(d.id)));
+  const notes = await Promise.all(docs.map((d) => store.notesFor(d.id)));
   const list = $('recent');
   list.replaceChildren();
   docs.forEach((doc, i) => {
@@ -280,8 +495,15 @@ async function showLibrary() {
     const title = document.createElement('strong');
     title.textContent = doc.name;
     const meta = document.createElement('span');
-    const notes = counts[i] === 1 ? '1 note' : `${counts[i]} notes`;
-    meta.textContent = `${doc.numPages} slides, ${counts[i] ? notes : 'no notes yet'}`;
+    const count = notes[i].length;
+    const done = notes[i].filter(isDone).length;
+    meta.textContent = [
+      `${doc.numPages} slides`,
+      count ? (count === 1 ? '1 note' : `${count} notes`) : 'no notes yet',
+      done ? `${done} understood` : '',
+    ]
+      .filter(Boolean)
+      .join(', ');
     open.append(title, meta);
     open.addEventListener('click', () => openStored(doc.id));
     const remove = document.createElement('button');
@@ -306,6 +528,7 @@ function openSettings(notice = '') {
   const s = store.settings();
   $('s-key').value = s.apiKey;
   $('s-model').value = s.model;
+  $('s-grade').value = s.gradeModel;
   $('s-fast').checked = s.fast;
   $('s-prompt').value = s.prompt;
   $('s-notice').textContent = notice;
@@ -334,6 +557,7 @@ settingsDialog.addEventListener('close', () => {
   store.saveSettings({
     apiKey: $('s-key').value,
     model: $('s-model').value,
+    gradeModel: $('s-grade').value,
     fast: $('s-fast').checked,
     prompt: $('s-prompt').value,
   });
@@ -403,6 +627,19 @@ $('note-stop').addEventListener('click', () => state.jobs.get(state.page)?.ctrl.
 $('note-redo').addEventListener('click', () => explain(state.page, { again: true }));
 $('note-delete').addEventListener('click', () => {
   if (confirm(`Delete the note for slide ${state.page}?`)) deleteNote(state.page);
+});
+$('quiz-start').addEventListener('click', () => startQuiz(state.page));
+$('quiz-again').addEventListener('click', () => restartQuiz(state.page));
+$('quiz-clear').addEventListener('click', () => {
+  const card = openCard();
+  pad.clear();
+  if (card) Object.assign(card, { feedback: '', failed: false });
+  renderQuiz();
+});
+$('quiz-reveal').addEventListener('click', () => {
+  const card = openCard();
+  if (card) card.revealed = true;
+  renderQuiz();
 });
 paneBody.addEventListener('click', (e) => {
   if (e.target.closest('[data-act="explain"]')) explain(state.page, { again: true });

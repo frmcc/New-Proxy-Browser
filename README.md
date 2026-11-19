@@ -1,8 +1,9 @@
 # PDF Tut
 
 A lecture-slide reader for iPad. Open a PDF, tap the yellow button, and a study
-note for the slide you are on is written next to it by Gemini Flash. Nothing to
-type. The note stays attached to that slide. You can write on the slides with
+note for the slide you are on is written next to it by Gemini Flash, together
+with a short quiz you answer by hand. Nothing to type. Note and quiz stay
+attached to that slide. You can write on the slides with
 Apple Pencil: strokes are smoothed as you write, and messy handwriting is
 rewritten neatly.
 
@@ -24,13 +25,31 @@ Google's Gemini API.
 
 - **Yellow button**: writes a note for the current slide. The slide counter in
   the top bar shows which slide that is.
-- **Yellow ribbon** on a slide: that slide has a note. Tap it to read it.
+- **Yellow ribbon** on a slide: that slide has a note. Tap it to read it. The
+  ribbon turns green with a tick once the slide's quiz is answered.
 - **Pinch** or **double tap** to zoom.
 - **Share icon** in the top bar: exports a copy of the PDF with every note
   embedded as a standard PDF sticky note and your handwriting drawn onto the
   slides.
 - With a keyboard: `G` or `Enter` writes the note, `←` `→` change slide, `Esc`
   hides the note, `⌘Z` / `⇧⌘Z` undo and redo handwriting.
+
+## The quiz
+
+Under each explanation sits a quiz card: one question about the slide and a
+box to write the answer in by hand. How many questions a slide gets (none to
+four) depends on how much on it is worth knowing.
+
+About two seconds after you stop writing, Gemini reads the answer and checks
+it. A correct answer brings the next card; a wrong one gets a hint, and what
+you wrote stays so you can add to it or clear the box. After a wrong try you
+can also have the answer shown. When every card is answered correctly the
+slide gets its green tick. The lecture list shows how many slides you have
+understood.
+
+Answers are checked by the model set under **Model for checking quiz answers**
+in Settings (`gemini-flash-lite-latest` by default; the main model is used if
+that one is unavailable).
 
 ## Writing on slides
 
@@ -87,6 +106,9 @@ Then open `http://localhost:8000`.
 | `src/store.js` | On-device storage |
 | `src/ink.js` | Handwriting: pen input, smoothing, eraser, undo |
 | `src/tidy.js` | Reads handwriting with Gemini and rewrites it neatly |
+| `src/quiz.js` | Writes the quiz questions and checks handwritten answers |
+| `src/pad.js` | The box quiz answers are written in |
+| `src/palm.js` | Tells the writing hand from fingers that scroll |
 | `src/tools.js` | The drawing toolbar |
 | `src/export.js` | Writes notes and handwriting into the PDF |
 | `vendor/` | [PDF.js](https://mozilla.github.io/pdf.js/), [pdf-lib](https://pdf-lib.js.org/) [perfect-freehand](https://github.com/steveruizok/perfect-freehand) and the [Kalam](https://fonts.google.com/specimen/Kalam) font |

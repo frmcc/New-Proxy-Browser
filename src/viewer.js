@@ -2,6 +2,7 @@
 // screen, tracks which slide is current, and handles pinch zoom itself.
 
 import * as pdfjs from '../vendor/pdfjs/pdf.min.mjs';
+import { palm } from './palm.js';
 
 const VENDOR = new URL('../vendor/pdfjs/', import.meta.url).href;
 // Rarely needed extras (CJK character maps, the 14 standard fonts, colour
@@ -14,8 +15,6 @@ const OFFSCREEN_PIXELS = 5_500_000; // pages waiting just outside the view get l
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 4;
 const PORTRAIT_MAX_WIDTH = 920;
-const PEN_GRACE = 600; // ms after a stroke during which touches still count as the writing hand
-const PEN_SESSION = 5000; // ms after a stroke during which a finger may not draw
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -46,14 +45,8 @@ export class Viewer {
     this.onPageShow = () => {};
     this.onPageHide = () => {};
     this.onPinch = () => {};
-    this.inkActive = false; // the pen (or mouse) is drawing right now
     this.fingerDraw = false; // "draw with a finger" is switched on
     this.fingerInk = false; // a finger is drawing right now
-    this._penUntil = 0; // the pen counts as "in use" until this time
-    this._penLast = -Infinity; // when the pen last touched or lifted
-    this._fingers = new Set(); // ids of the finger touches that are down
-    this._palms = new Set(); // touches of the writing hand: ignored until they lift
-    this._lockTimer = 0;
     this.doc = null;
     this.pages = [];
     this.near = new Set();
@@ -125,9 +118,6 @@ export class Viewer {
     }
     this.pages = [];
     this.near.clear();
-    this._fingers.clear();
-    this._palms.clear();
-    this._syncLock();
     this.scroller.replaceChildren();
     const task = this._task;
     this.doc = null;
@@ -212,50 +202,13 @@ export class Viewer {
     this.scroller.classList.toggle('finger-draw', on);
   }
 
-  // ---- pen and palm ----
-  // Fingers move the slides and the pen writes. The hand holding the pen also
-  // rests on the glass, so while the pen is in use everything else that
-  // touches the screen is treated as that hand: it cannot scroll, zoom or tap,
-  // and stays ignored until it lifts. The view is pinned for that time.
-
-  penDown() {
-    this.inkActive = true;
-    this._penLast = performance.now();
-    for (const id of this._fingers) this._palms.add(id); // already resting: the writing hand
-    this._dropGestures();
-    this._syncLock();
-  }
-
-  penUp() {
-    this.inkActive = false;
-    // The hand hops along between strokes; keep ignoring it for a moment.
-    this._penLast = performance.now();
-    this._penUntil = this._penLast + PEN_GRACE;
-    this._syncLock();
-  }
-
-  // Someone writing with the pen is not also drawing with a finger: with
-  // "draw with a finger" on, the hand must not leave marks between strokes.
-  penRecent() {
-    return this.inkActive || performance.now() - this._penLast < PEN_SESSION;
-  }
-
-  penBusy() {
-    return this.inkActive || performance.now() < this._penUntil;
-  }
-
-  _syncLock() {
-    clearTimeout(this._lockTimer);
-    const busy = this.penBusy();
-    // Pinning matters only where a touch can scroll.
-    this.scroller.classList.toggle('writing', (busy || this._palms.size > 0) && navigator.maxTouchPoints > 0);
-    if (busy && !this.inkActive)
-      this._lockTimer = setTimeout(() => this._syncLock(), this._penUntil - performance.now() + 20);
-  }
-
-  setMarked(n, marked) {
+  // The ribbon on a slide: false for none, 'note' when it has an explanation,
+  // 'done' once its quiz has been answered.
+  setMarked(n, mark) {
     const p = this.pages[n - 1];
-    if (p) p.tab.hidden = !marked;
+    if (!p) return;
+    p.tab.hidden = !mark;
+    p.tab.classList.toggle('done', mark === 'done');
   }
 
   goTo(n, behavior = 'smooth') {
@@ -461,44 +414,22 @@ export class Viewer {
     const middle = (t) => [(t[0].clientX + t[1].clientX) / 2, (t[0].clientY + t[1].clientY) / 2];
 
     // The Apple Pencil shows up among the touches too, and so does the hand
-    // that holds it. Only free fingers may move the slides.
-    const isFinger = (t) => t.touchType !== 'stylus';
-    const fingers = (e) => [...e.touches].filter((t) => isFinger(t) && !this._palms.has(t.identifier));
-
-    // Forget touches that are gone, in case an end event never arrived.
-    const prune = (e) => {
-      const down = new Set([...e.touches].map((t) => t.identifier));
-      for (const set of [this._fingers, this._palms]) for (const id of set) if (!down.has(id)) set.delete(id);
-    };
+    // that holds it (see palm.js). Only free fingers may move the slides.
+    const fingers = (e) => [...e.touches].filter((t) => t.touchType !== 'stylus' && !palm.has(t.identifier));
 
     let pinch = null;
     let tap = null; // candidate for a double tap
     let lastTap = null;
-    this._dropGestures = () => {
+    const drop = () => {
       if (pinch?.live) this._renderNear();
       pinch = tap = lastTap = null;
     };
+    palm.onPenDown(drop);
 
     s.addEventListener(
       'touchstart',
       (e) => {
-        prune(e);
-        const writing = this.penBusy();
-        let palm = false;
-        for (const t of e.changedTouches) {
-          if (!isFinger(t)) continue;
-          this._fingers.add(t.identifier);
-          if (writing) {
-            // It landed while the pen is in use: the writing hand.
-            this._palms.add(t.identifier);
-            palm = true;
-          }
-        }
-        if (palm) {
-          if (e.cancelable) e.preventDefault();
-          return this._syncLock();
-        }
-        if (!this.pages.length || this._palms.size) return;
+        if (!this.pages.length || palm.resting() || palm.busy()) return;
         const f = fingers(e);
         if (f.length === 2 && e.touches.length === 2) {
           e.preventDefault();
@@ -516,11 +447,7 @@ export class Viewer {
     s.addEventListener(
       'touchmove',
       (e) => {
-        if (this._palms.size || this.inkActive) {
-          // The writing hand shifts as it writes; that must not move anything.
-          if (e.cancelable) e.preventDefault();
-          return;
-        }
+        if (palm.resting() || palm.busy()) return;
         const f = fingers(e);
         if (pinch && f.length === 2) {
           e.preventDefault();
@@ -542,16 +469,7 @@ export class Viewer {
     );
 
     const end = (e) => {
-      let palmLifted = false;
-      for (const t of e.changedTouches) {
-        this._fingers.delete(t.identifier);
-        if (this._palms.delete(t.identifier)) palmLifted = true;
-      }
-      prune(e);
-      if (palmLifted || this._palms.size || this.penBusy()) {
-        this._dropGestures();
-        return this._syncLock();
-      }
+      if (palm.resting() || palm.busy()) return drop();
       const f = fingers(e);
       if (pinch && f.length < 2) {
         const moved = pinch.live;
@@ -575,15 +493,7 @@ export class Viewer {
       tap = null;
     };
     s.addEventListener('touchend', end, { passive: false });
-    s.addEventListener('touchcancel', (e) => {
-      for (const t of e.changedTouches) {
-        this._fingers.delete(t.identifier);
-        this._palms.delete(t.identifier);
-      }
-      prune(e);
-      this._dropGestures();
-      this._syncLock();
-    });
+    s.addEventListener('touchcancel', drop);
 
     // Trackpad pinch and ctrl + wheel on a desktop browser.
     let wheelTimer;

@@ -128,14 +128,37 @@ export async function* streamGenerate(request) {
   yield* readSse(res);
 }
 
-// A short one-shot answer (used to read handwriting).
-export async function generateText(request) {
-  const res = await post('generateContent', { ...request, config: { temperature: 0, maxOutputTokens: 512 } });
+async function answerText(res) {
   const data = await res.json();
   return (data.candidates?.[0]?.content?.parts ?? [])
     .filter((part) => !part.thought && part.text)
     .map((part) => part.text)
     .join('');
+}
+
+// A short one-shot answer (used to read handwriting).
+export async function generateText(request) {
+  return answerText(await post('generateContent', { ...request, config: { temperature: 0, maxOutputTokens: 512 } }));
+}
+
+// A one-shot answer in a fixed JSON shape (used for the quiz).
+export async function generateJson({ schema, ...request }) {
+  const res = await post('generateContent', {
+    ...request,
+    config: { temperature: 0.2, maxOutputTokens: 1024, responseMimeType: 'application/json', responseSchema: schema },
+  });
+  const text = await answerText(res);
+  try {
+    return JSON.parse(text);
+  } catch {
+    const body = text.match(/\{[\s\S]*\}/);
+    if (body) {
+      try {
+        return JSON.parse(body[0]);
+      } catch {}
+    }
+    throw new GeminiError('Gemini returned an answer that could not be read. Try again.');
+  }
 }
 
 export async function listFlashModels(apiKey) {
