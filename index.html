@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>PDF Tut</title>
+  <meta name="description" content="Read lecture slides and get a study note for the slide you are on with one tap.">
+  <meta name="theme-color" content="#fafaf7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1d212a" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="PDF Tut">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app" data-view="library">
+    <header id="bar">
+      <button id="open-library" class="icon-btn" aria-label="All lectures">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+      </button>
+      <h1 id="doc-title">PDF Tut</h1>
+      <span id="page-indicator"></span>
+      <button id="open-export" class="icon-btn" aria-label="Export the PDF with notes">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4m0 0L8 8m4-4l4 4M5 13v5a2 2 0 002 2h10a2 2 0 002-2v-5"/></svg>
+      </button>
+      <button id="open-settings" class="icon-btn" aria-label="Settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10m4 0h2M4 17h2m4 0h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>
+      </button>
+    </header>
+
+    <main id="stage">
+      <div id="viewer" tabindex="0" aria-label="Slides"></div>
+      <button id="explain" class="fab" aria-label="Explain this slide">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.6 4.4l5 5-8.9 8.9-4.1.9a.8.8 0 01-1-.9l1-4.1z"/><path d="M12.4 6.6l5 5"/><path d="M4 21.2h9"/></svg>
+      </button>
+    </main>
+
+    <section id="library">
+      <div class="library-inner">
+        <h2><span>Lectures</span></h2>
+        <p class="lede">Open a lecture PDF and tap the yellow button on any slide. The explanation appears next to the slide and stays with it.</p>
+        <button id="pick" class="btn primary">Open a PDF</button>
+        <ul id="recent"></ul>
+      </div>
+    </section>
+
+    <aside id="pane" hidden aria-label="Note for this slide">
+      <header>
+        <h2 id="pane-title">Slide 1</h2>
+        <button id="note-stop" class="text-btn" hidden>Stop</button>
+        <button id="note-redo" class="icon-btn" aria-label="Write this note again" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12a7 7 0 11-2.3-5.2M19 4v4h-4"/></svg>
+        </button>
+        <button id="note-delete" class="icon-btn" aria-label="Delete this note" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M10 7V5h4v2m-7 0l1 12h8l1-12"/></svg>
+        </button>
+        <button id="pane-close" class="icon-btn" aria-label="Hide the note">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </header>
+      <div id="pane-body" class="note"></div>
+    </aside>
+  </div>
+
+  <dialog id="settings">
+    <form method="dialog">
+      <h2>Settings</h2>
+      <p id="s-notice" class="notice" hidden></p>
+
+      <label for="s-key">Gemini API key</label>
+      <input id="s-key" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="AIza…">
+      <p class="hint">Kept on this device and sent only to Google. <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Get a key in Google AI Studio</a>.</p>
+
+      <label for="s-model">Model</label>
+      <input id="s-model" list="s-models" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <datalist id="s-models"></datalist>
+      <p class="hint" id="s-model-hint">gemini-flash-latest always points at Google's newest Flash model.</p>
+
+      <label class="check"><input id="s-fast" type="checkbox"> <span>Fastest answers<small>Skips the model's thinking step, so the note starts sooner.</small></span></label>
+
+      <label for="s-prompt">What a note should contain</label>
+      <textarea id="s-prompt" rows="9" spellcheck="false"></textarea>
+      <button type="button" id="s-reset" class="text-btn">Restore the original instructions</button>
+
+      <footer>
+        <button type="button" id="s-cancel" class="btn">Cancel</button>
+        <button value="save" class="btn primary">Save</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="export">
+    <h2>Export the PDF with notes</h2>
+    <p id="export-status"></p>
+    <footer>
+      <button id="export-close" class="btn">Close</button>
+      <a id="export-download" class="btn" hidden>Download</a>
+      <button id="export-share" class="btn primary" hidden>Share</button>
+    </footer>
+  </dialog>
+
+  <div id="toast" role="status" hidden></div>
+  <input id="file" type="file" accept="application/pdf,.pdf" hidden>
+  <script type="module" src="src/app.js"></script>
+</body>
+</html>
