@@ -23,7 +23,7 @@
       </button>
       <h1 id="doc-title">PDF Tut</h1>
       <span id="page-indicator"></span>
-      <button id="open-export" class="icon-btn" aria-label="Export the PDF with notes">
+      <button id="open-export" class="icon-btn" aria-label="Export the annotated PDF">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4m0 0L8 8m4-4l4 4M5 13v5a2 2 0 002 2h10a2 2 0 002-2v-5"/></svg>
       </button>
       <button id="open-settings" class="icon-btn" aria-label="Settings">
@@ -34,14 +34,45 @@
     <main id="stage">
       <div id="viewer" tabindex="0" aria-label="Slides"></div>
       <button id="explain" class="fab" aria-label="Explain this slide">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.6 4.4l5 5-8.9 8.9-4.1.9a.8.8 0 01-1-.9l1-4.1z"/><path d="M12.4 6.6l5 5"/><path d="M4 21.2h9"/></svg>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a6 6 0 00-3.7 10.7c.7.6 1.2 1.4 1.2 2.3h5c0-.9.5-1.7 1.2-2.3A6 6 0 0012 3z"/><path d="M9.8 18.6h4.4M10.8 21h2.4"/></svg>
       </button>
+
+      <div id="tools" role="toolbar" aria-label="Drawing tools">
+        <button data-tool="pen" aria-label="Pen">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l1.2-4.6L16.6 4a2 2 0 012.8 0l.6.6a2 2 0 010 2.8L8.6 18.8z"/><path d="M14.5 6.1l3.4 3.4"/></svg>
+        </button>
+        <button data-tool="highlighter" aria-label="Highlighter">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14.5l7.6-9.3a1.6 1.6 0 012.4-.1l.9.9a1.6 1.6 0 01-.1 2.4L10.5 16z"/><path d="M9 14.5L7.5 19l4.5-1.5 -1.5-1.5"/><path d="M4 21h16"/></svg>
+        </button>
+        <button data-tool="eraser" aria-label="Eraser">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.6 14.9l9-9a2 2 0 012.8 0l3.7 3.7a2 2 0 010 2.8L13.5 19H8.7z"/><path d="M9.8 9.7l6.5 6.5M8.7 19H20"/></svg>
+        </button>
+        <span class="sep"></span>
+        <span id="swatches" class="group"></span>
+        <span class="sep"></span>
+        <span id="sizes" class="group"></span>
+        <span class="sep"></span>
+        <button id="undo" aria-label="Undo">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 5.5L4.5 9.5l4 4"/><path d="M4.5 9.5h9a5 5 0 010 10h-3"/></svg>
+        </button>
+        <button id="redo" aria-label="Redo">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 5.5l4 4-4 4"/><path d="M19.5 9.5h-9a5 5 0 000 10h3"/></svg>
+        </button>
+        <span class="sep"></span>
+        <button id="finger" aria-label="Draw with a finger too" title="Draw with a finger too">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 12V5.2a1.6 1.6 0 013.2 0V11"/><path d="M12.7 10.4a1.6 1.6 0 013.2 0v1.2a1.6 1.6 0 013.1.4v3.5a6 6 0 01-6 6h-.9a6 6 0 01-4.9-2.5L5 15.9a1.5 1.5 0 012.4-1.8L9.5 16"/></svg>
+        </button>
+        <button id="tools-toggle" aria-label="Hide the drawing tools">
+          <svg class="when-open" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+          <svg class="when-closed" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l1.2-4.6L16.6 4a2 2 0 012.8 0l.6.6a2 2 0 010 2.8L8.6 18.8z"/><path d="M14.5 6.1l3.4 3.4"/></svg>
+        </button>
+      </div>
     </main>
 
     <section id="library">
       <div class="library-inner">
         <h2><span>Lectures</span></h2>
-        <p class="lede">Open a lecture PDF and tap the yellow button on any slide. The explanation appears next to the slide and stays with it.</p>
+        <p class="lede">Open a lecture PDF and tap the yellow button on any slide. The explanation appears next to the slide and stays with it. Write on the slides with Apple Pencil.</p>
         <button id="pick" class="btn primary">Open a PDF</button>
         <ul id="recent"></ul>
       </div>
@@ -93,7 +124,7 @@
   </dialog>
 
   <dialog id="export">
-    <h2>Export the PDF with notes</h2>
+    <h2>Export the annotated PDF</h2>
     <p id="export-status"></p>
     <footer>
       <button id="export-close" class="btn">Close</button>

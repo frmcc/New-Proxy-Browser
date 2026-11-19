@@ -39,6 +39,12 @@ export class Viewer {
     this.scroller = scroller;
     this.onPageChange = onPageChange;
     this.onMarkerTap = onMarkerTap;
+    // Hooks for the ink layer.
+    this.onPageShow = () => {};
+    this.onPageHide = () => {};
+    this.onPinch = () => {};
+    this.inkActive = false; // a stroke is being drawn right now
+    this.fingerDraw = false; // one finger draws instead of scrolling
     this.doc = null;
     this.pages = [];
     this.near = new Set();
@@ -129,6 +135,7 @@ export class Viewer {
         if (Math.abs(aspect - p.aspect) > 0.005) {
           p.aspect = aspect;
           this._queueRelayout();
+          if (this.near.has(p)) this.onPageShow(p);
         }
         if (p.text === null) p.text = await extractText(page);
       } catch {
@@ -176,6 +183,20 @@ export class Viewer {
     const data = out.toDataURL('image/jpeg', 0.8).split(',')[1];
     release(out);
     return data;
+  }
+
+  // The page under a screen point, or null over the desk between pages.
+  pageUnder(x, y) {
+    if (!this.pages.length) return null;
+    const s = this.scroller;
+    const p = this.pages[this._indexAt(s.scrollTop + y - s.getBoundingClientRect().top)];
+    const r = p.el.getBoundingClientRect();
+    return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom ? p : null;
+  }
+
+  setFingerDraw(on) {
+    this.fingerDraw = on;
+    this.scroller.classList.toggle('finger-draw', on);
   }
 
   setMarked(n, marked) {
@@ -291,9 +312,11 @@ export class Viewer {
       if (entry.isIntersecting) {
         this.near.add(p);
         this._render(p);
+        this.onPageShow(p);
       } else {
         this.near.delete(p);
         this._free(p);
+        this.onPageHide(p);
       }
     }
   }
@@ -373,6 +396,10 @@ export class Viewer {
     const distance = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
     const middle = (t) => [(t[0].clientX + t[1].clientX) / 2, (t[0].clientY + t[1].clientY) / 2];
 
+    // An Apple Pencil shows up among the touches too; it belongs to the ink
+    // layer, so only fingers count here.
+    const fingers = (e) => [...e.touches].filter((t) => t.touchType !== 'stylus');
+
     let pinch = null;
     let tap = null; // candidate for a double tap
     let lastTap = null;
@@ -381,13 +408,17 @@ export class Viewer {
       'touchstart',
       (e) => {
         if (!this.pages.length) return;
-        if (e.touches.length === 2) {
+        const f = fingers(e);
+        if (f.length === 2 && e.touches.length === 2) {
           e.preventDefault();
-          const [x, y] = middle(e.touches);
-          pinch = { distance: distance(e.touches), zoom: this.zoom, anchor: this._capture(x, y) };
+          this.onPinch();
+          const [x, y] = middle(f);
+          pinch = { distance: distance(f), zoom: this.zoom, anchor: this._capture(x, y) };
           tap = null;
-        } else if (e.touches.length === 1 && !e.target.closest('.tab')) {
-          tap = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: e.timeStamp };
+        } else if (this.inkActive) {
+          e.preventDefault(); // a resting hand must not scroll the page mid-stroke
+        } else if (f.length === 1 && e.touches.length === 1 && !this.fingerDraw && !e.target.closest('.tab')) {
+          tap = { x: f[0].clientX, y: f[0].clientY, t: e.timeStamp };
         }
       },
       { passive: false },
@@ -396,26 +427,29 @@ export class Viewer {
     s.addEventListener(
       'touchmove',
       (e) => {
-        if (pinch && e.touches.length === 2) {
+        const f = fingers(e);
+        if (pinch && f.length === 2) {
           e.preventDefault();
-          const [x, y] = middle(e.touches);
-          this._zoomTo((pinch.zoom * distance(e.touches)) / pinch.distance, x, y, pinch.anchor);
+          const [x, y] = middle(f);
+          this._zoomTo((pinch.zoom * distance(f)) / pinch.distance, x, y, pinch.anchor);
+        } else if (this.inkActive) {
+          if (e.cancelable) e.preventDefault();
         } else if (tap) {
-          const t = e.touches[0];
-          if (Math.hypot(t.clientX - tap.x, t.clientY - tap.y) > 10) tap = null;
+          if (!f[0] || Math.hypot(f[0].clientX - tap.x, f[0].clientY - tap.y) > 10) tap = null;
         }
       },
       { passive: false },
     );
 
     const end = (e) => {
-      if (pinch && e.touches.length < 2) {
+      const f = fingers(e);
+      if (pinch && f.length < 2) {
         pinch = null;
         this._renderNear();
         this._updateCurrent();
         return;
       }
-      if (!tap || e.touches.length || e.timeStamp - tap.t > 300) return (tap = null);
+      if (!tap || f.length || e.timeStamp - tap.t > 300) return (tap = null);
       if (lastTap && tap.t - lastTap.t < 320 && Math.hypot(tap.x - lastTap.x, tap.y - lastTap.y) < 36) {
         e.preventDefault();
         this._zoomTo(this.zoom > 1.05 ? 1 : 2, tap.x, tap.y);

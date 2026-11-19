@@ -3,6 +3,8 @@ import * as store from './store.js';
 import { streamGenerate, listFlashModels } from './gemini.js';
 import { renderMarkdown } from './markdown.js';
 import { DEFAULT_PROMPT, buildParts } from './prompt.js';
+import { Ink } from './ink.js';
+import { setupTools } from './tools.js';
 
 const $ = (id) => document.getElementById(id);
 const app = $('app');
@@ -32,6 +34,13 @@ const viewer = new Viewer($('viewer'), {
     if (n !== state.page) requestAnimationFrame(() => viewer.goTo(n));
   },
 });
+
+const ink = new Ink(viewer, {
+  onChange(page, strokes) {
+    if (state.doc) store.putInk(state.doc.id, page, strokes);
+  },
+});
+setupTools(ink, viewer);
 
 // ---- rendering ----
 
@@ -189,10 +198,19 @@ function stopJobs() {
   state.jobs.clear();
 }
 
+// A document is recognised by its exact bytes, so a re-download of the same
+// lecture finds its notes again and an exported copy counts as a new file.
+async function documentId(buffer, fallback) {
+  if (!globalThis.crypto?.subtle) return fallback; // plain http: use PDF.js's fingerprint
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', buffer));
+  return [...digest.subarray(0, 16)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 async function openBytes(buffer, name) {
   stopJobs();
   state.doc = null;
   state.notes.clear();
+  ink.load([]);
   setView('reader');
   let info;
   try {
@@ -206,10 +224,11 @@ async function openBytes(buffer, name) {
     );
     return showLibrary();
   }
-  let doc = await store.getDoc(info.id);
+  const id = await documentId(buffer, info.id);
+  let doc = await store.getDoc(id);
   if (!doc) {
-    doc = { id: info.id, name, numPages: info.numPages, lastPage: 1, addedAt: Date.now() };
-    await store.putFile(info.id, buffer);
+    doc = { id, name, numPages: info.numPages, lastPage: 1, addedAt: Date.now() };
+    await store.putFile(id, buffer);
   }
   doc.openedAt = Date.now();
   await store.putDoc(doc);
@@ -221,6 +240,7 @@ async function openBytes(buffer, name) {
     state.notes.set(note.page, note);
     viewer.setMarked(note.page, true);
   }
+  ink.load(await store.inkFor(doc.id));
   if (doc.lastPage > 1) viewer.goTo(doc.lastPage, 'auto');
   render();
   navigator.storage?.persist?.();
@@ -243,6 +263,7 @@ async function showLibrary() {
   state.notes.clear();
   state.paneOpen = false;
   store.setLastDoc(null);
+  ink.load([]);
   await viewer.close();
   setView('library');
 
@@ -325,17 +346,18 @@ let exportUrl = null;
 async function openExport() {
   if (!state.doc) return;
   const notes = [...state.notes.values()];
-  if (!notes.length) return toast('This lecture has no notes to export yet.');
+  const drawn = [...ink.pages].filter(([, strokes]) => strokes.length).map(([page, strokes]) => ({ page, strokes }));
+  if (!notes.length && !drawn.length) return toast('This lecture has no notes or handwriting to export yet.');
   const doc = state.doc;
   const status = $('export-status');
   const share = $('export-share');
   const download = $('export-download');
   share.hidden = download.hidden = true;
-  status.textContent = `Adding ${notes.length === 1 ? '1 note' : `${notes.length} notes`} to the PDF.`;
+  status.textContent = 'Adding your notes and handwriting to the PDF.';
   exportDialog.showModal();
   try {
-    const { exportWithNotes } = await import('./export.js');
-    const bytes = await exportWithNotes(await store.getFile(doc.id), notes);
+    const { exportAnnotated } = await import('./export.js');
+    const bytes = await exportAnnotated(await store.getFile(doc.id), notes, drawn);
     const file = new File([bytes], `${doc.name} (notes).pdf`, { type: 'application/pdf' });
     if (exportUrl) URL.revokeObjectURL(exportUrl);
     exportUrl = URL.createObjectURL(file);
@@ -346,11 +368,15 @@ async function openExport() {
       share.hidden = false;
       share.onclick = () => navigator.share({ files: [file] }).catch(() => {});
     }
-    status.textContent =
-      'The notes are in the PDF as sticky notes, one in the top right corner of each explained slide.';
+    status.textContent = [
+      notes.length && 'Each note is a sticky note in the top right corner of its slide.',
+      drawn.length && 'Your handwriting is drawn onto the slides.',
+    ]
+      .filter(Boolean)
+      .join(' ');
   } catch (e) {
     console.error(e);
-    status.textContent = 'The notes could not be added to this PDF. It may be encrypted or damaged.';
+    status.textContent = 'This PDF could not be annotated. It may be encrypted or damaged.';
   }
 }
 
@@ -383,8 +409,12 @@ paneBody.addEventListener('click', (e) => {
 
 document.addEventListener('keydown', (e) => {
   if (app.dataset.view !== 'reader' || !state.doc) return;
-  if (e.metaKey || e.ctrlKey || e.altKey || document.querySelector('dialog[open]')) return;
-  if (e.target.closest('input, textarea, select')) return;
+  if (document.querySelector('dialog[open]') || e.target.closest('input, textarea, select')) return;
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
+    e.preventDefault();
+    return e.shiftKey ? ink.redo() : ink.undo();
+  }
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.key === 'Enter' && e.target.closest('button, a')) return; // Enter presses the focused button
   const keys = {
     g: () => explain(state.page),

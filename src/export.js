@@ -1,16 +1,39 @@
-// Writes the notes into a copy of the PDF as standard sticky-note
-// annotations, so they open in Files, Preview, Acrobat and other readers.
+// Writes a copy of the PDF that carries everything added in the app: notes as
+// standard sticky-note annotations, handwriting as vector drawing on the page.
+// Both open in Files, Preview, Acrobat and other readers.
 
 import { toPlainText } from './markdown.js';
+import { strokePath, UNITS } from './ink.js';
 
-export async function exportWithNotes(bytes, notes) {
-  const { PDFDocument, PDFHexString, PDFString } = await import('../vendor/pdf-lib.esm.min.js');
+export async function exportAnnotated(bytes, notes, drawn) {
+  const { PDFDocument, PDFHexString, PDFString, BlendMode, rgb } = await import('../vendor/pdf-lib.esm.min.js');
   const pdf = await PDFDocument.load(bytes, { updateMetadata: false });
   const pages = pdf.getPages();
+  const hex = (c) => rgb(...[1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16) / 255));
+
+  for (const { page: n, strokes } of drawn) {
+    const page = pages[n - 1];
+    if (!page) continue;
+    const box = page.getCropBox();
+    // Highlighter first, so pen strokes stay on top as they do on screen.
+    const ordered = [...strokes].sort((a, b) => (b.tool === 'highlighter') - (a.tool === 'highlighter'));
+    for (const stroke of ordered) {
+      const path = strokePath(stroke);
+      if (!path) continue;
+      page.drawSvgPath(path, {
+        x: box.x,
+        y: box.y + box.height,
+        scale: box.width / UNITS,
+        color: hex(stroke.color),
+        borderWidth: 0,
+        ...(stroke.tool === 'highlighter' ? { blendMode: BlendMode.Multiply } : {}),
+      });
+    }
+  }
+
   const modified = PDFString.fromDate(new Date());
   const size = 22;
   const inset = 10;
-
   for (const note of notes) {
     const page = pages[note.page - 1];
     if (!page) continue;

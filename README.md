@@ -2,7 +2,8 @@
 
 A lecture-slide reader for iPad. Open a PDF, tap the yellow button, and a study
 note for the slide you are on is written next to it by Gemini Flash. Nothing to
-type. The note stays attached to that slide.
+type. The note stays attached to that slide. You can write on the slides with
+Apple Pencil, and the strokes are smoothed as you write.
 
 It is a plain web app with no server and no build step. PDFs, notes and the API
 key are stored on the device; the only thing that leaves it is the request to
@@ -25,9 +26,23 @@ Google's Gemini API.
 - **Yellow ribbon** on a slide: that slide has a note. Tap it to read it.
 - **Pinch** or **double tap** to zoom.
 - **Share icon** in the top bar: exports a copy of the PDF with every note
-  embedded as a standard PDF sticky note.
+  embedded as a standard PDF sticky note and your handwriting drawn onto the
+  slides.
 - With a keyboard: `G` or `Enter` writes the note, `←` `→` change slide, `Esc`
-  hides the note.
+  hides the note, `⌘Z` / `⇧⌘Z` undo and redo handwriting.
+
+## Writing on slides
+
+The Apple Pencil always writes; fingers always scroll and zoom, so there is no
+mode to switch. The toolbar at the bottom picks pen, highlighter or eraser,
+the colour and the width, and has undo and redo. The hand button lets a finger
+(or a mouse) draw as well; two fingers then move and zoom. The arrow at the end
+folds the toolbar away.
+
+Strokes are smoothed with [perfect-freehand](https://github.com/steveruizok/perfect-freehand):
+it evens out the jitter of the raw pen input and varies the line width with
+pressure. Handwriting is stored per slide as vector strokes, so it stays sharp
+at any zoom. The eraser removes whole strokes.
 
 ## Changing what the note says
 
@@ -55,5 +70,7 @@ Then open `http://localhost:8000`.
 | `src/gemini.js` | Streaming calls to the Gemini API |
 | `src/prompt.js` | Default instructions and request assembly |
 | `src/store.js` | On-device storage |
-| `src/export.js` | Writes notes into the PDF |
-| `vendor/` | [PDF.js](https://mozilla.github.io/pdf.js/) and [pdf-lib](https://pdf-lib.js.org/) |
+| `src/ink.js` | Handwriting: pen input, smoothing, eraser, undo |
+| `src/tools.js` | The drawing toolbar |
+| `src/export.js` | Writes notes and handwriting into the PDF |
+| `vendor/` | [PDF.js](https://mozilla.github.io/pdf.js/), [pdf-lib](https://pdf-lib.js.org/) and [perfect-freehand](https://github.com/steveruizok/perfect-freehand) |

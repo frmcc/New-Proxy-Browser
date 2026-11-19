@@ -11,12 +11,17 @@ let dbPromise;
 
 function db() {
   return (dbPromise ??= new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
-    req.onupgradeneeded = () => {
+    const req = indexedDB.open(DB_NAME, 2);
+    req.onupgradeneeded = (e) => {
       const d = req.result;
-      d.createObjectStore('docs', { keyPath: 'id' });
-      d.createObjectStore('files');
-      d.createObjectStore('notes', { keyPath: ['docId', 'page'] }).createIndex('byDoc', 'docId');
+      if (e.oldVersion < 1) {
+        d.createObjectStore('docs', { keyPath: 'id' });
+        d.createObjectStore('files');
+        d.createObjectStore('notes', { keyPath: ['docId', 'page'] }).createIndex('byDoc', 'docId');
+      }
+      if (e.oldVersion < 2) {
+        d.createObjectStore('ink', { keyPath: ['docId', 'page'] }).createIndex('byDoc', 'docId');
+      }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -66,17 +71,29 @@ export const putNote = (note) =>
 export const deleteNote = (docId, page) =>
   run('notes', 'readwrite', (tx) => tx.objectStore('notes').delete([docId, page]));
 
+// Handwriting: one record per page, { docId, page, strokes }.
+export const inkFor = (docId) =>
+  run('ink', 'readonly', (tx, set) => set(tx.objectStore('ink').index('byDoc').getAll(docId)));
+
+export const putInk = (docId, page, strokes) =>
+  run('ink', 'readwrite', (tx) => {
+    if (strokes.length) tx.objectStore('ink').put({ docId, page, strokes });
+    else tx.objectStore('ink').delete([docId, page]);
+  });
+
 export const deleteDoc = (id) =>
-  run(['docs', 'files', 'notes'], 'readwrite', (tx) => {
+  run(['docs', 'files', 'notes', 'ink'], 'readwrite', (tx) => {
     tx.objectStore('docs').delete(id);
     tx.objectStore('files').delete(id);
-    const cursor = tx.objectStore('notes').index('byDoc').openKeyCursor(IDBKeyRange.only(id));
-    cursor.onsuccess = () => {
-      const c = cursor.result;
-      if (!c) return;
-      tx.objectStore('notes').delete(c.primaryKey);
-      c.continue();
-    };
+    for (const name of ['notes', 'ink']) {
+      const cursor = tx.objectStore(name).index('byDoc').openKeyCursor(IDBKeyRange.only(id));
+      cursor.onsuccess = () => {
+        const c = cursor.result;
+        if (!c) return;
+        tx.objectStore(name).delete(c.primaryKey);
+        c.continue();
+      };
+    }
   });
 
 const DEFAULTS = { apiKey: '', model: 'gemini-flash-latest', fast: true, prompt: null };
