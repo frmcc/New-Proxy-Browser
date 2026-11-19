@@ -28,8 +28,24 @@ export const PALETTE = {
   },
 };
 
+// Handwriting that has been rewritten neatly is kept as a text item
+// { tool: 'text', text, x, y, size, lh, w, color }: x / y is the start of the
+// first baseline, lh the line height, w the width of the longest line.
+export const HAND_FONT = '"PDF Tut Hand"';
+
+export function textBox(item) {
+  const lines = item.text.split('\n').length;
+  return {
+    left: item.x,
+    right: item.x + item.w,
+    top: item.y - item.size * 0.85,
+    bottom: item.y + (lines - 1) * item.lh + item.size * 0.3,
+  };
+}
+
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const ERASER_RADIUS = 9;
+const REST_MS = 1200; // pause after the last stroke before handwriting is tidied
 
 // iPadOS hands the Pencil to web pages as a touch with touchType "stylus".
 // Cancelling that touch is what stops the page from scrolling under the pen,
@@ -84,6 +100,12 @@ const crosses = (a, b, c, d) => side(c, d, a) * side(c, d, b) < 0 && side(a, b, 
 
 // Does the eraser, moving from a to b, touch this stroke?
 function touches(stroke, a, b) {
+  if (stroke.tool === 'text') {
+    const r = textBox(stroke);
+    const inside = (x, y) =>
+      x >= r.left - ERASER_RADIUS && x <= r.right + ERASER_RADIUS && y >= r.top - ERASER_RADIUS && y <= r.bottom + ERASER_RADIUS;
+    return inside(a[0], a[1]) || inside(b[0], b[1]) || inside((a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+  }
   const reach = ERASER_RADIUS + stroke.size / 2;
   const pts = stroke.points;
   for (let i = 0; i < pts.length; i++) {
@@ -106,6 +128,10 @@ export class Ink {
     this.viewer = viewer;
     this.onChange = onChange; // (pageNumber, strokes) after every edit
     this.onHistory = () => {}; // undo / redo availability changed
+    this.onRest = () => {}; // the pen has been still for a moment
+    this.tidy = true; // rewrite handwriting neatly after each pause
+    this.fresh = new Map(); // pen stroke not yet looked at for tidying -> page number
+    this._restTimer = 0;
     this.pages = new Map(); // page number -> strokes
     this.undoStack = [];
     this.redoStack = [];
@@ -126,6 +152,8 @@ export class Ink {
   // Replace everything with the handwriting of a newly opened document.
   load(records) {
     this._cancel();
+    clearTimeout(this._restTimer);
+    this.fresh.clear();
     this.pages = new Map(records.map((r) => [r.page, r.strokes]));
     this.undoStack = [];
     this.redoStack = [];
@@ -156,6 +184,19 @@ export class Ink {
     this.onHistory();
   }
 
+  // Swap in a new list of items for a page as one undoable step.
+  replace(n, after) {
+    const before = this.pages.get(n) ?? [];
+    this._commit(n, before, after);
+    const p = this.viewer.pages[n - 1];
+    if (p && this.viewer.near.has(p)) this._mount(p);
+  }
+
+  // Dim strokes while they are being read.
+  setBusy(strokes, busy) {
+    for (const s of strokes) this._paths.get(s)?.classList.toggle('tidying', busy);
+  }
+
   _commit(n, before, after) {
     this.pages.set(n, after);
     this.undoStack.push({ page: n, before, after });
@@ -169,7 +210,8 @@ export class Ink {
 
   // Highlighter strokes live in their own layer so the whole layer can be
   // multiplied onto the slide: text stays readable through the colour.
-  _layer(p, tool) {
+  _layer(p, kind) {
+    const tool = kind === 'highlighter' ? 'highlighter' : 'pen';
     p.ink ??= {};
     if (!p.ink[tool]) {
       const svg = document.createElementNS(SVG_NS, 'svg');
@@ -184,12 +226,24 @@ export class Ink {
 
   _pathFor(stroke) {
     let el = this._paths.get(stroke);
-    if (!el) {
+    if (el) return el;
+    if (stroke.tool === 'text') {
+      el = document.createElementNS(SVG_NS, 'text');
+      el.setAttribute('font-size', stroke.size);
+      el.setAttribute('y', stroke.y);
+      stroke.text.split('\n').forEach((line, i) => {
+        const span = document.createElementNS(SVG_NS, 'tspan');
+        span.setAttribute('x', stroke.x);
+        if (i) span.setAttribute('dy', stroke.lh);
+        span.textContent = line;
+        el.append(span);
+      });
+    } else {
       el = document.createElementNS(SVG_NS, 'path');
       el.setAttribute('d', strokePath(stroke));
-      el.setAttribute('fill', stroke.color);
-      this._paths.set(stroke, el);
     }
+    el.setAttribute('fill', stroke.color);
+    this._paths.set(stroke, el);
     return el;
   }
 
@@ -214,6 +268,7 @@ export class Ink {
 
   _begin(p, id, x, y, pressure, erase) {
     const pt = this._toUnits(p, x, y);
+    clearTimeout(this._restTimer);
     this.viewer.inkActive = true;
     if (erase) {
       this.active = { id, p, erase: true, last: pt, before: this.pages.get(p.num) ?? [] };
@@ -263,12 +318,18 @@ export class Ink {
     if (a.erase) {
       const after = this.pages.get(n) ?? [];
       if (after.length !== a.before.length) this._commit(n, a.before, after);
-      return;
+    } else {
+      a.el.setAttribute('d', strokePath(a.stroke, true));
+      this._paths.set(a.stroke, a.el);
+      const before = this.pages.get(n) ?? [];
+      this._commit(n, before, [...before, a.stroke]);
+      if (this.tidy && a.stroke.tool === 'pen') this.fresh.set(a.stroke, n);
     }
-    a.el.setAttribute('d', strokePath(a.stroke, true));
-    this._paths.set(a.stroke, a.el);
-    const before = this.pages.get(n) ?? [];
-    this._commit(n, before, [...before, a.stroke]);
+    if (this.fresh.size) {
+      this._restTimer = setTimeout(() => {
+        if (!this.active) this.onRest();
+      }, REST_MS);
+    }
   }
 
   // Drop the stroke in progress, e.g. when a second finger starts a pinch.

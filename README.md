@@ -3,7 +3,8 @@
 A lecture-slide reader for iPad. Open a PDF, tap the yellow button, and a study
 note for the slide you are on is written next to it by Gemini Flash. Nothing to
 type. The note stays attached to that slide. You can write on the slides with
-Apple Pencil, and the strokes are smoothed as you write.
+Apple Pencil: strokes are smoothed as you write, and messy handwriting is
+rewritten neatly.
 
 It is a plain web app with no server and no build step. PDFs, notes and the API
 key are stored on the device; the only thing that leaves it is the request to
@@ -44,6 +45,18 @@ it evens out the jitter of the raw pen input and varies the line width with
 pressure. Handwriting is stored per slide as vector strokes, so it stays sharp
 at any zoom. The eraser removes whole strokes.
 
+### Neat handwriting
+
+With the **Aa** button on, whatever you write is rewritten neatly about a
+second after you stop: Gemini reads the scribble and the app replaces it with
+the same words in a clean handwriting font (Kalam), at the same place, size and
+colour. A word written right after a neat line joins that line. Underlines,
+arrows, drawings and stacked formulas are left as you drew them.
+
+Undo brings your original strokes back and leaves them alone. This needs the
+API key and a connection; an image of what you wrote and the text of the slide
+are sent to Gemini to read it. Turn **Aa** off to keep your own handwriting.
+
 ## Changing what the note says
 
 Settings → **What a note should contain** holds the instructions sent to the
@@ -71,6 +84,7 @@ Then open `http://localhost:8000`.
 | `src/prompt.js` | Default instructions and request assembly |
 | `src/store.js` | On-device storage |
 | `src/ink.js` | Handwriting: pen input, smoothing, eraser, undo |
+| `src/tidy.js` | Reads handwriting with Gemini and rewrites it neatly |
 | `src/tools.js` | The drawing toolbar |
 | `src/export.js` | Writes notes and handwriting into the PDF |
-| `vendor/` | [PDF.js](https://mozilla.github.io/pdf.js/), [pdf-lib](https://pdf-lib.js.org/) and [perfect-freehand](https://github.com/steveruizok/perfect-freehand) |
+| `vendor/` | [PDF.js](https://mozilla.github.io/pdf.js/), [pdf-lib](https://pdf-lib.js.org/) [perfect-freehand](https://github.com/steveruizok/perfect-freehand) and the [Kalam](https://fonts.google.com/specimen/Kalam) font |

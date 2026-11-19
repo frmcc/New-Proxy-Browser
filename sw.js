@@ -2,7 +2,7 @@
 // update is picked up on the next launch; the cache answers when the
 // connection is missing or slow.
 
-const CACHE = 'pdf-tut-v2';
+const CACHE = 'pdf-tut-v3';
 const SHELL = [
   './',
   'index.html',
@@ -19,6 +19,9 @@ const SHELL = [
   'src/export.js',
   'src/ink.js',
   'src/tools.js',
+  'src/tidy.js',
+  'vendor/fonts/kalam-latin-400-normal.woff2',
+  'vendor/fonts/kalam-latin-ext-400-normal.woff2',
   'vendor/perfect-freehand.mjs',
   'vendor/pdfjs/pdf.min.mjs',
   'vendor/pdfjs/pdf.worker.min.mjs',

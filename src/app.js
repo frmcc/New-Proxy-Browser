@@ -5,6 +5,7 @@ import { renderMarkdown } from './markdown.js';
 import { DEFAULT_PROMPT, buildParts } from './prompt.js';
 import { Ink } from './ink.js';
 import { setupTools } from './tools.js';
+import { setupTidy } from './tidy.js';
 
 const $ = (id) => document.getElementById(id);
 const app = $('app');
@@ -41,6 +42,7 @@ const ink = new Ink(viewer, {
   },
 });
 setupTools(ink, viewer);
+setupTidy(ink, viewer, { toast });
 
 // ---- rendering ----
 

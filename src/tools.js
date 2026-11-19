@@ -16,6 +16,7 @@ export function setupTools(ink, viewer) {
   } catch {}
   if (saved.tool) ink.tool = saved.tool;
   for (const tool of ['pen', 'highlighter']) Object.assign(ink.style[tool], saved.style?.[tool]);
+  if (typeof saved.tidy === 'boolean') ink.tidy = saved.tidy;
   viewer.setFingerDraw(Boolean(saved.finger));
   bar.classList.toggle('collapsed', Boolean(saved.collapsed));
 
@@ -26,6 +27,7 @@ export function setupTools(ink, viewer) {
         tool: ink.tool,
         style: ink.style,
         finger: viewer.fingerDraw,
+        tidy: ink.tidy,
         collapsed: bar.classList.contains('collapsed'),
       }),
     );
@@ -33,6 +35,7 @@ export function setupTools(ink, viewer) {
   function render() {
     for (const b of bar.querySelectorAll('[data-tool]')) b.setAttribute('aria-pressed', b.dataset.tool === ink.tool);
     document.getElementById('finger').setAttribute('aria-pressed', viewer.fingerDraw);
+    document.getElementById('tidy').setAttribute('aria-pressed', ink.tidy);
     document.getElementById('undo').disabled = !ink.undoStack.length;
     document.getElementById('redo').disabled = !ink.redoStack.length;
     const collapsed = bar.classList.contains('collapsed');
@@ -77,6 +80,7 @@ export function setupTools(ink, viewer) {
     else if (b.id === 'undo') ink.undo();
     else if (b.id === 'redo') ink.redo();
     else if (b.id === 'finger') viewer.setFingerDraw(!viewer.fingerDraw);
+    else if (b.id === 'tidy') ink.tidy = !ink.tidy;
     else if (b.id === 'tools-toggle') bar.classList.toggle('collapsed');
     persist();
     render();

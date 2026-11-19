@@ -3,7 +3,30 @@
 // Both open in Files, Preview, Acrobat and other readers.
 
 import { toPlainText } from './markdown.js';
-import { strokePath, UNITS } from './ink.js';
+import { strokePath, textBox, HAND_FONT, UNITS } from './ink.js';
+
+// Tidied handwriting is drawn by the browser and placed as an image, so it
+// looks exactly as on screen, including symbols the handwriting font lacks.
+function textImage(item) {
+  const r = textBox(item);
+  const pad = item.size * 0.35;
+  const left = r.left - pad;
+  const top = r.top - pad;
+  const w = r.right - r.left + pad * 2;
+  const h = r.bottom - r.top + pad * 2;
+  const k = Math.min(4, 4096 / Math.max(w, h));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.ceil(w * k);
+  canvas.height = Math.ceil(h * k);
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(k, 0, 0, k, -left * k, -top * k);
+  ctx.font = `400 ${item.size}px ${HAND_FONT}, cursive`;
+  ctx.fillStyle = item.color;
+  item.text.split('\n').forEach((line, i) => ctx.fillText(line, item.x, item.y + i * item.lh));
+  const png = canvas.toDataURL('image/png');
+  canvas.width = canvas.height = 0;
+  return { png, left, top, w, h };
+}
 
 export async function exportAnnotated(bytes, notes, drawn) {
   const { PDFDocument, PDFHexString, PDFString, BlendMode, rgb } = await import('../vendor/pdf-lib.esm.min.js');
@@ -17,13 +40,24 @@ export async function exportAnnotated(bytes, notes, drawn) {
     const box = page.getCropBox();
     // Highlighter first, so pen strokes stay on top as they do on screen.
     const ordered = [...strokes].sort((a, b) => (b.tool === 'highlighter') - (a.tool === 'highlighter'));
+    const scale = box.width / UNITS;
     for (const stroke of ordered) {
+      if (stroke.tool === 'text') {
+        const { png, left, top, w, h } = textImage(stroke);
+        page.drawImage(await pdf.embedPng(png), {
+          x: box.x + left * scale,
+          y: box.y + box.height - (top + h) * scale,
+          width: w * scale,
+          height: h * scale,
+        });
+        continue;
+      }
       const path = strokePath(stroke);
       if (!path) continue;
       page.drawSvgPath(path, {
         x: box.x,
         y: box.y + box.height,
-        scale: box.width / UNITS,
+        scale,
         color: hex(stroke.color),
         borderWidth: 0,
         ...(stroke.tool === 'highlighter' ? { blendMode: BlendMode.Multiply } : {}),

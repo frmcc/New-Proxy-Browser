@@ -81,17 +81,19 @@ async function* readSse(res) {
   }
 }
 
-export async function* streamGenerate({ apiKey, model, system, parts, fast, signal }) {
+// Sends one request, working out on the way how this model wants thinking
+// switched off. Resolves with the successful Response.
+async function post(method, { apiKey, model, system, parts, fast, signal, config }) {
   const variants = fast ? thinkingVariants(model) : [null];
   let start = Number(localStorage.getItem(VARIANT_KEY + model) ?? 0);
   if (!(start >= 0 && start < variants.length)) start = 0;
 
-  for (let i = start; i < variants.length; i++) {
-    const generationConfig = { temperature: 0.4, maxOutputTokens: 4096 };
+  for (let i = start; ; i++) {
+    const generationConfig = { ...config };
     if (variants[i]) generationConfig.thinkingConfig = variants[i];
     let res;
     try {
-      res = await fetch(`${BASE}/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`, {
+      res = await fetch(`${BASE}/models/${encodeURIComponent(model)}:${method}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
         body: JSON.stringify({
@@ -105,17 +107,35 @@ export async function* streamGenerate({ apiKey, model, system, parts, fast, sign
       if (e.name === 'AbortError') throw e;
       throw new GeminiError('Could not reach Gemini. Check the internet connection.');
     }
-    if (!res.ok) {
-      const { raw, error } = await readError(res, model);
-      // A 400 that complains about thinking means this model wants a
-      // different spelling; anything else is a real failure.
-      if (res.status === 400 && /think/i.test(raw) && i < variants.length - 1) continue;
-      throw error;
+    if (res.ok) {
+      if (fast) localStorage.setItem(VARIANT_KEY + model, String(i));
+      return res;
     }
-    if (fast) localStorage.setItem(VARIANT_KEY + model, String(i));
-    yield* readSse(res);
-    return;
+    const { raw, error } = await readError(res, model);
+    // A 400 that complains about thinking means this model wants a
+    // different spelling; anything else is a real failure.
+    if (res.status === 400 && /think/i.test(raw) && i < variants.length - 1) continue;
+    throw error;
   }
+}
+
+// The study note: streamed, so the first words show up at once.
+export async function* streamGenerate(request) {
+  const res = await post('streamGenerateContent?alt=sse', {
+    ...request,
+    config: { temperature: 0.4, maxOutputTokens: 4096 },
+  });
+  yield* readSse(res);
+}
+
+// A short one-shot answer (used to read handwriting).
+export async function generateText(request) {
+  const res = await post('generateContent', { ...request, config: { temperature: 0, maxOutputTokens: 512 } });
+  const data = await res.json();
+  return (data.candidates?.[0]?.content?.parts ?? [])
+    .filter((part) => !part.thought && part.text)
+    .map((part) => part.text)
+    .join('');
 }
 
 export async function listFlashModels(apiKey) {
